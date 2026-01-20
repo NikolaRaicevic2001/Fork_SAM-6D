@@ -47,15 +47,57 @@ We also provide a [docker image](https://hub.docker.com/r/lihualiu/sam-6d/tags) 
 ### 2. Evaluation on the custom data
 ```
 # set the paths
-export CAD_PATH=Data/Example/obj_000005.ply    # path to a given cad model(mm)
-export RGB_PATH=Data/Example/rgb.png           # path to a given RGB image
-export DEPTH_PATH=Data/Example/depth.png       # path to a given depth map(mm)
-export CAMERA_PATH=Data/Example/camera.json    # path to given camera intrinsics
-export OUTPUT_DIR=Data/Example/outputs         # path to a pre-defined file for saving results
+export CAD_PATH=$(pwd)/Data/Example/obj_000005.ply    # path to a given cad model(mm)
+export RGB_PATH=$(pwd)/Data/Example/rgb.png           # path to a given RGB image
+export DEPTH_PATH=$(pwd)/Data/Example/depth.png       # path to a given depth map(mm)
+export CAMERA_PATH=$(pwd)/Data/Example/camera.json    # path to given camera intrinsics
+export OUTPUT_DIR=$(pwd)/Data/Example/outputs         # path to a pre-defined file for saving results
 
 # run inference
-cd SAM-6D
 sh demo.sh
+```
+
+### 3. Run new object
+```
+# ============================================
+# Configuration - EDIT THESE PATHS
+# ============================================
+OBJECT_DIR="myObject/tomatoSoup"    # Directory containing your data
+CAD_FILE="obj_000004.ply"           # Your CAD model filename
+RGB_FILE="rgb.png"                  # Your RGB image filename
+DEPTH_FILE="depth.png"              # Your depth image filename
+CAMERA_FILE="camera.json"           # Your camera intrinsics filename
+
+# ============================================
+# Set Paths
+# ============================================
+export CAD_PATH=$(pwd)/Data/${OBJECT_DIR}/${CAD_FILE}
+export RGB_PATH=$(pwd)/Data/${OBJECT_DIR}/${RGB_FILE}
+export DEPTH_PATH=$(pwd)/Data/${OBJECT_DIR}/${DEPTH_FILE}
+export CAMERA_PATH=$(pwd)/Data/${OBJECT_DIR}/${CAMERA_FILE}
+export OUTPUT_DIR=$(pwd)/Data/${OBJECT_DIR}/outputs
+
+# ============================================
+# Run Pipeline
+# ============================================
+echo "========================================="
+echo "Running SAM-6D Pipeline"
+echo "========================================="
+echo "CAD Model: $CAD_PATH"
+echo "RGB Image: $RGB_PATH"
+echo "Depth Image: $DEPTH_PATH"
+echo "Camera: $CAMERA_PATH"
+echo "Output: $OUTPUT_DIR"
+echo "========================================="
+
+# Run the pipeline
+sh demo.sh
+
+echo ""
+echo "========================================="
+echo "Pipeline Complete!"
+echo "Results saved to: $OUTPUT_DIR/sam6d_results/"
+echo "========================================="
 ```
 
 
