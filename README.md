@@ -62,8 +62,8 @@ sh demo.sh
 # ============================================
 # Configuration - EDIT THESE PATHS
 # ============================================
-OBJECT_DIR="myObject/banana"    # Directory containing your data
-CAD_FILE="obj_000010.ply"           # Your CAD model filename
+OBJECT_DIR="myObject/tomatoSoup"    # Directory containing your data
+CAD_FILE="obj_000004.ply"           # Your CAD model filename
 RGB_FILE="rgb.png"                  # Your RGB image filename
 DEPTH_FILE="depth.png"              # Your depth image filename
 CAMERA_FILE="camera.json"           # Your camera intrinsics filename
@@ -100,7 +100,10 @@ echo "Results saved to: $OUTPUT_DIR/sam6d_results/"
 echo "========================================="
 ```
 
-
+### 4. Capture Image
+```
+python realsense_tracker.py --out_dir /home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D/Data/myObject/tomatoSoup/outputs --intrinsics_for color
+```
 
 ## Citation
 If you find our work useful in your research, please consider citing:

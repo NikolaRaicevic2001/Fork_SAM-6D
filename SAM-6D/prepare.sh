@@ -17,3 +17,4 @@ cd ../
 ### Download PEM pretrained model
 cd Pose_Estimation_Model
 python download_sam6d-pem.py
+

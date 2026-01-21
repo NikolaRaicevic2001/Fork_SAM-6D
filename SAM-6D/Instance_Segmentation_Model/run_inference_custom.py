@@ -225,3 +225,5 @@ if __name__ == "__main__":
         args.segmentor_model, args.output_dir, args.cad_path, args.rgb_path, args.depth_path, args.cam_path, 
         stability_score_thresh=args.stability_score_thresh,
     )
+
+    
