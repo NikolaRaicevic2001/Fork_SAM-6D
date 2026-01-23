@@ -161,62 +161,132 @@ class ObjectTracker:
         concat.paste(rgb, (0, 0))
         concat.paste(prediction, (img.shape[1], 0))
         return concat
+    
+    def visualize_fallback(self, rgb: Image.Image, message: str = "No detection"):
+        """ Returns a PIL.Image with the same layout as visualize() with a message """
+        left = rgb.convert("RGB")
+        left_np = np.array(left)
+
+        gray = cv2.cvtColor(left_np, cv2.COLOR_RGB2GRAY)
+        right_np = cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
+
+        # Text overlay
+        cv2.putText(
+            right_np,
+            message,
+            (20, 40),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1.0,
+            (255, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
+
+        right = Image.fromarray(right_np)
+        concat = Image.new("RGB", (left.width + right.width, left.height))
+        concat.paste(left, (0, 0))
+        concat.paste(right, (left.width, 0))
+        return concat
 
     def run_segmentation_inference(self, color_bgr: np.ndarray, depth_bop: np.ndarray):
-        """Run segmentation inference on a single RGB-D frame."""
+        """Run segmentation inference on a single RGB-D frame and always return a PIL image like visualize()."""
         rgb = Image.fromarray(cv2.cvtColor(color_bgr, cv2.COLOR_BGR2RGB))
+        rgb_np = np.array(rgb)
 
-        detections = self.model_segmentation.segmentor_model.generate_masks(np.array(rgb))
-        detections = Detections(detections)
-        query_decriptors, query_appe_descriptors = self.model_segmentation.descriptor_model.forward(np.array(rgb), detections)
+        masks = self.model_segmentation.segmentor_model.generate_masks(rgb_np)
+        if masks is None or len(masks) == 0:
+            print("No masks detected!")
+            return self.visualize_fallback(rgb, "No masks")
 
-        # matching descriptors
-        idx_selected_proposals, pred_idx_objects, semantic_score, best_template = \
-            self.model_segmentation.compute_semantic_score(query_decriptors)
+        print(f"{len(masks)} masks detected!")
+        detections = Detections(masks)
 
-        # update detections
+        # Descriptor forward
+        try:
+            query_decriptors, query_appe_descriptors = self.model_segmentation.descriptor_model.forward(rgb_np, detections)
+        except Exception as e:
+            logging.warning(f"descriptor forward failed: {e}")
+            return self.visualize_fallback(rgb, "Descriptor failed")
+
+        # Semantic matching
+        try:
+            idx_selected_proposals, pred_idx_objects, semantic_score, best_template = \
+                self.model_segmentation.compute_semantic_score(query_decriptors)
+        except Exception as e:
+            logging.warning(f"compute_semantic_score failed: {e}")
+            return self.visualize_fallback(rgb, "Semantic failed")
+
+        # Guard: nothing selected
+        if idx_selected_proposals is None or len(idx_selected_proposals) == 0:
+            return self.visualize_fallback(rgb, "No proposals")
+
+        # Filter detections
         detections.filter(idx_selected_proposals)
+        if getattr(detections, "masks", None) is None or len(detections) == 0:
+            return self.visualize_fallback(rgb, "Empty after filter")
+
         query_appe_descriptors = query_appe_descriptors[idx_selected_proposals, :]
 
-        # compute the appearance score
-        appe_scores, ref_aux_descriptor = self.model_segmentation.compute_appearance_score(
-            best_template, pred_idx_objects, query_appe_descriptors
-        )
+        # Appearance score
+        try:
+            appe_scores, ref_aux_descriptor = self.model_segmentation.compute_appearance_score(
+                best_template, pred_idx_objects, query_appe_descriptors
+            )
+        except Exception as e:
+            logging.warning(f"compute_appearance_score failed: {e}")
+            return self.visualize_fallback(rgb, "Appearance failed")
 
-        # compute the geometric score
-        batch = self.batch_input_data(depth_bop)
+        # Geometry stage 
+        try:
+            batch = self.batch_input_data(depth_bop)
 
-        template_poses = get_obj_poses_from_template_level(level=2, pose_distribution="all")
-        template_poses[:, :3, 3] *= 0.4
-        poses = torch.tensor(template_poses).to(torch.float32).to(self.device)
-        self.model_segmentation.ref_data["poses"] = poses[load_index_level_in_level2(0, "all"), :, :]
+            template_poses = get_obj_poses_from_template_level(level=2, pose_distribution="all")
+            template_poses[:, :3, 3] *= 0.4
+            poses = torch.tensor(template_poses).to(torch.float32).to(self.device)
+            self.model_segmentation.ref_data["poses"] = poses[load_index_level_in_level2(0, "all"), :, :]
 
-        mesh = trimesh.load_mesh(self.cad_path)
-        model_points = mesh.sample(2048).astype(np.float32) / 1000.0
-        self.model_segmentation.ref_data["pointcloud"] = torch.tensor(model_points).unsqueeze(0).data.to(self.device)
+            mesh = trimesh.load_mesh(self.cad_path)
+            model_points = mesh.sample(2048).astype(np.float32) / 1000.0
+            self.model_segmentation.ref_data["pointcloud"] = torch.tensor(model_points).unsqueeze(0).data.to(self.device)
 
-        image_uv = self.model_segmentation.project_template_to_image(best_template, pred_idx_objects, batch, detections.masks)
-        geometric_score, visible_ratio = self.model_segmentation.compute_geometric_score(
-            image_uv, detections, query_appe_descriptors, ref_aux_descriptor, visible_thred=self.model_segmentation.visible_thred
-        )
+            # Prevent N==1 squeezing issues by enforcing (N,H,W)
+            if hasattr(detections, "masks") and detections.masks is not None:
+                m = detections.masks
+                if hasattr(m, "dim") and m.dim() == 2:
+                    detections.masks = m.unsqueeze(0)
+                elif isinstance(m, np.ndarray) and m.ndim == 2:
+                    detections.masks = m[None, ...]
 
-        # final score
+            image_uv = self.model_segmentation.project_template_to_image(
+                best_template, pred_idx_objects, batch, detections.masks
+            )
+
+            geometric_score, visible_ratio = self.model_segmentation.compute_geometric_score(
+                image_uv, detections, query_appe_descriptors, ref_aux_descriptor,
+                visible_thred=self.model_segmentation.visible_thred
+            )
+
+        except Exception as e:
+            logging.warning(f"Geometry failed/skipped: {e}")
+            return self.visualize_fallback(rgb, "Geometry failed")
+
+        # Final score
         final_score = (semantic_score + appe_scores + geometric_score * visible_ratio) / (1 + 1 + visible_ratio)
         detections.add_attribute("scores", final_score)
         detections.add_attribute("object_ids", torch.zeros_like(final_score))
 
+        # Convert to list-of-dicts for visualize()
         detections.to_numpy()
+
+        # If you still want to save, do it here (but consider not saving every frame)
         save_path = f"{self.output_dir}/sam6d_results/detection_ism"
         detections.save_to_file(0, 0, 0, save_path, "Custom", return_results=False)
         detections_json = convert_npz_to_json(idx=0, list_npz_paths=[save_path + ".npz"])
         save_json_bop23(save_path + ".json", detections_json)
 
+        # Normal visualize output (PIL Image side-by-side)
         vis_img = self.visualize(rgb, detections_json, f"{self.output_dir}/sam6d_results/vis_ism.png")
-        vis_img.save(f"{self.output_dir}/sam6d_results/vis_ism.png")
-        print(f"Segmentation results saved to {self.output_dir}/sam6d_results/")
-
         return vis_img
-
 
 # Main
 def main():
@@ -257,6 +327,9 @@ def main():
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):
                 break
+            elif key == ord("s"):
+                vis_img.save(f"{args.output_dir}/sam6d_results/vis_ism.png")
+                print(f"Segmentation results saved to {args.output_dir}/sam6d_results/")
     finally:
         cv2.destroyAllWindows()
         del realsense
