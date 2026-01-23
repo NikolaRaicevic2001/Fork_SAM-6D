@@ -105,6 +105,15 @@ echo "========================================="
 python realsense_tracker.py --out_dir /home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D/Data/myObject/tomatoSoup/outputs --intrinsics_for color
 ```
 
+### 5. Run Object Tracking
+```
+python realsense_tracker.py \
+  --segmentor_model fastsam \
+  --output_dir /home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D/Data/myObject/tomatoSoup/outputs \
+  --cad_path /home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D/Data/myObject/tomatoSoup/obj_000004.ply 
+  
+```
+
 ## Citation
 If you find our work useful in your research, please consider citing:
 

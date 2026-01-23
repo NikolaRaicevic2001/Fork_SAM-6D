@@ -37,6 +37,7 @@ class RealSenseCamera:
         depth_name=DEPTH_NAME,
         caminfo_name=CAMINFO_NAME,
         out_dir="./CameraOutputs",
+        align_to_color: bool = True,
     ):
         """ Initializes RealSense camera and starts pipeline """
         # Store parameters
@@ -44,13 +45,19 @@ class RealSenseCamera:
         self.height = int(height)
         self.fps = int(fps)
         self.warmup = int(warmup)
-        self.depth_scale = float(depth_scale)
+
+        self.depth_scale = float(depth_scale)     # BOP depth_scale
+        if self.depth_scale <= 0:
+            raise ValueError("depth_scale must be > 0")
+
         self.intrinsics_for = intrinsics_for
         self.rgb_name = rgb_name
         self.depth_name = depth_name
         self.caminfo_name = caminfo_name
         self.out_dir = Path(out_dir)
         self.out_dir.mkdir(parents=True, exist_ok=True)
+
+        self.align_to_color = bool(align_to_color)
 
         # Device enumeration
         self.ctx = rs.context()
@@ -65,13 +72,25 @@ class RealSenseCamera:
         self.config.enable_stream(rs.stream.color, self.width, self.height, rs.format.bgr8, self.fps)
         self.profile = self.pipeline.start(self.config)
 
-        # Depth post-processing filters (BOP-style quality)
+        # RealSense depth scale: meters per raw unit
+        self.depth_scale_rs_m_per_unit = float(self.profile.get_device().first_depth_sensor().get_depth_scale())
+
+        # Alignment object
+        self.align = rs.align(rs.stream.color) if self.align_to_color else None
+
+        # Depth post-processing filters
         self.decimation = rs.decimation_filter()
         self.spatial = rs.spatial_filter()
         self.temporal = rs.temporal_filter()
         self.hole_filling = rs.hole_filling_filter()
 
-        # Warmup frames (stabilize auto-exposure)
+        # Prevent decimation from changing resolution
+        try:
+            self.decimation.set_option(rs.option.filter_magnitude, 1.0)
+        except Exception:
+            pass
+
+        # Warmup
         for _ in range(self.warmup):
             self.pipeline.wait_for_frames()
 
@@ -216,73 +235,60 @@ class RealSenseCamera:
 
         return {"intrinsics": intrinsics, "bop": bop}
     
-    def get_camera_stream( self, window_name: str = "RealSense - (q) quit  (c) capture", align_to_color: bool = True, max_depth_mm: int = 6000,):
+    def frames(self):
         """
-        BOP-consistent preview + capture.
+        Generator of synchronized frames.
 
-        Saved depth:
-        depth_bop_uint16 = round(depth_mm * self.depth_scale)
-        BOP convention:
-        depth_mm = depth_bop_uint16 / self.depth_scale
-
-        Preview:
-        Shows the SAVED depth values (depth_bop) in stable grayscale by using a fixed max_depth_mm.
-
-        Keys:
-        q : quit
-        c : capture rgb.png, depth.png
+        Yields:
+          color_bgr: uint8 HxWx3
+          depth_bop: uint16 HxW (BOP stored units; depth_mm = depth_bop / self.depth_scale)
         """
-        if getattr(self, "depth_scale", None) is None or self.depth_scale <= 0:
-            raise ValueError("self.depth_scale (BOP depth_scale) must be > 0")
+        while True:
+            fs = self.pipeline.wait_for_frames()
+
+            if self.align is not None:
+                fs = self.align.process(fs)
+
+            depth_frame = fs.get_depth_frame()
+            color_frame = fs.get_color_frame()
+            if not depth_frame or not color_frame:
+                continue
+
+            # Filter depth
+            depth_frame = self.decimation.process(depth_frame)
+            depth_frame = self.spatial.process(depth_frame)
+            depth_frame = self.temporal.process(depth_frame)
+            depth_frame = self.hole_filling.process(depth_frame)
+
+            color_bgr = np.asanyarray(color_frame.get_data()).astype(np.uint8)
+            depth_raw = np.asanyarray(depth_frame.get_data()).astype(np.uint16)
+
+            # raw -> mm
+            depth_mm = np.round(depth_raw.astype(np.float32) * self.depth_scale_rs_m_per_unit * 1000.0).astype(np.uint16)
+
+            # mm -> BOP stored units
+            depth_bop = np.round(depth_mm.astype(np.float32) * self.depth_scale).astype(np.uint16)
+
+            yield color_bgr, depth_bop
+
+    def get_camera_stream( self, window_name: str = "RealSense - (q) quit  (c) capture", max_depth_mm: int = 6000):
+        """
+        Preview + capture using the same frames() generator.
+
+        Preview is stable grayscale derived from the SAVED depth values (depth_bop).
+        """
         if max_depth_mm <= 0:
             raise ValueError("max_depth_mm must be > 0")
 
-        depth_scale_rs_m_per_unit = float(self.profile.get_device().first_depth_sensor().get_depth_scale())
-        align = rs.align(rs.stream.color) if align_to_color else None
-
-        # Fixed visualization scale in "BOP units"
-        max_bop = int(round(max_depth_mm * float(self.depth_scale)))
+        # Fixed visualization scale in BOP units
+        max_bop = int(round(max_depth_mm * self.depth_scale))
         max_bop = max(max_bop, 1)
 
         cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
 
-        # Keep decimation from changing resolution unexpectedly
         try:
-            self.decimation.set_option(rs.option.filter_magnitude, 1.0)
-        except Exception:
-            pass
-
-        try:
-            while True:
-                frames = self.pipeline.wait_for_frames()
-
-                # Align frameset
-                if align is not None:
-                    frames = align.process(frames)
-
-                depth_frame = frames.get_depth_frame()
-                color_frame = frames.get_color_frame()
-                if not depth_frame or not color_frame:
-                    continue
-
-                # Post-process depth
-                depth_frame = self.decimation.process(depth_frame)
-                depth_frame = self.spatial.process(depth_frame)
-                depth_frame = self.temporal.process(depth_frame)
-                depth_frame = self.hole_filling.process(depth_frame)
-
-                color_bgr = np.asanyarray(color_frame.get_data()).astype(np.uint8)
-                depth_raw = np.asanyarray(depth_frame.get_data()).astype(np.uint16)
-
-                # raw -> mm (true metric)
-                depth_mm = np.round(depth_raw.astype(np.float32) * depth_scale_rs_m_per_unit * 1000.0).astype(np.uint16)
-
-                # mm -> BOP stored units (uint16)
-                depth_bop = np.round(depth_mm.astype(np.float32) * float(self.depth_scale)).astype(np.uint16)
-
-                # Stable grayscale preview of SAVED depth values
-                # - 0 stays 0 (black)
-                # - values >= max_bop saturate to 255
+            for color_bgr, depth_bop in self.frames():
+                # Stable preview: map [0..max_bop] -> [0..255]
                 depth_u8 = (np.minimum(depth_bop, max_bop).astype(np.float32) * (255.0 / max_bop)).astype(np.uint8)
                 depth_gray_bgr = cv2.cvtColor(depth_u8, cv2.COLOR_GRAY2BGR)
 
@@ -302,8 +308,7 @@ class RealSenseCamera:
                         "Captured:\n"
                         f"  RGB         : {rgb_path}\n"
                         f"  Depth (BOP) : {depth_path} (uint16; depth_mm = value / {self.depth_scale})\n"
-                        f"  RS scale    : {depth_scale_rs_m_per_unit:.6f} m/unit\n"
-                        f"  Align color : {align_to_color}\n"
+                        f"  Align color : {self.align_to_color}\n"
                         f"  Preview max : {max_depth_mm} mm"
                     )
         finally:
@@ -319,7 +324,7 @@ def main():
     try:
         realsensecamera.get_camera_info(print_info=True)
         realsensecamera.get_camera_intrinsics(save_json=True, print_info=True)
-        realsensecamera.get_camera_stream(window_name="RealSense - (q) quit  (c) capture", align_to_color=True)
+        realsensecamera.get_camera_stream(window_name="RealSense - (q) quit  (c) capture")
     finally:
         del realsensecamera
 
