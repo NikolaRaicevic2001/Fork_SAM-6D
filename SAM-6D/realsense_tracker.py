@@ -124,44 +124,52 @@ class ObjectTracker:
         batch['depth_scale'] = torch.from_numpy(depth_scale).unsqueeze(0).to(self.device)
         return batch
 
-    def visualize(self, rgb, detections, save_path="tmp.png"):
+    def visualize(self, rgb: Image.Image, detections, save_path=None):
         img = rgb.copy()
         gray = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2GRAY)
         img = cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
         colors = distinctipy.get_colors(len(detections))
         alpha = 0.33
 
-        best_score = 0.
-        for mask_idx, det in enumerate(detections):
-            if best_score < det['score']:
-                best_score = det['score']
-                best_det = detections[mask_idx]
+        best_score = -1e9
+        best_det = None
+        for det in detections:
+            if det.get("score", 0.0) > best_score:
+                best_score = det.get("score", 0.0)
+                best_det = det
+
+        if best_det is None:
+            return self.visualize_fallback(rgb, "No best det")
 
         mask = rle_to_mask(best_det["segmentation"])
         edge = canny(mask)
         edge = binary_dilation(edge, np.ones((2, 2)))
-        obj_id = best_det["category_id"]
-        temp_id = obj_id - 1
 
-        r = int(255*colors[temp_id][0])
-        g = int(255*colors[temp_id][1])
-        b = int(255*colors[temp_id][2])
-        img[mask, 0] = alpha*r + (1 - alpha)*img[mask, 0]
-        img[mask, 1] = alpha*g + (1 - alpha)*img[mask, 1]
-        img[mask, 2] = alpha*b + (1 - alpha)*img[mask, 2]   
+        obj_id = int(best_det["category_id"])
+        temp_id = max(obj_id - 1, 0)
+
+        r = int(255 * colors[temp_id][0])
+        g = int(255 * colors[temp_id][1])
+        b = int(255 * colors[temp_id][2])
+
+        img[mask, 0] = alpha * r + (1 - alpha) * img[mask, 0]
+        img[mask, 1] = alpha * g + (1 - alpha) * img[mask, 1]
+        img[mask, 2] = alpha * b + (1 - alpha) * img[mask, 2]
         img[edge, :] = 255
-        
-        img = Image.fromarray(np.uint8(img))
-        img.save(save_path)
-        prediction = Image.open(save_path)
-        
-        # concat side by side in PIL
-        img = np.array(img)
-        concat = Image.new('RGB', (img.shape[1] + prediction.size[0], img.shape[0]))
-        concat.paste(rgb, (0, 0))
-        concat.paste(prediction, (img.shape[1], 0))
+
+        prediction = Image.fromarray(np.uint8(img))
+
+        # side-by-side
+        concat = Image.new("RGB", (rgb.width + prediction.width, rgb.height))
+        concat.paste(rgb.convert("RGB"), (0, 0))
+        concat.paste(prediction, (rgb.width, 0))
+
+        # If caller explicitly wants to save
+        if save_path is not None:
+            concat.save(save_path)
+
         return concat
-    
+
     def visualize_fallback(self, rgb: Image.Image, message: str = "No detection"):
         """ Returns a PIL.Image with the same layout as visualize() with a message """
         left = rgb.convert("RGB")
@@ -284,8 +292,8 @@ class ObjectTracker:
         detections_json = convert_npz_to_json(idx=0, list_npz_paths=[save_path + ".npz"])
         save_json_bop23(save_path + ".json", detections_json)
 
-        # Normal visualize output (PIL Image side-by-side)
-        vis_img = self.visualize(rgb, detections_json, f"{self.output_dir}/sam6d_results/vis_ism.png")
+        # Normal visualize output 
+        vis_img = self.visualize(rgb, detections_json, save_path=None)
         return vis_img
 
 # Main
@@ -328,8 +336,11 @@ def main():
             if key == ord("q"):
                 break
             elif key == ord("s"):
-                vis_img.save(f"{args.output_dir}/sam6d_results/vis_ism.png")
-                print(f"Segmentation results saved to {args.output_dir}/sam6d_results/")
+                out_dir = os.path.join(args.output_dir, "sam6d_results")
+                os.makedirs(out_dir, exist_ok=True)
+                save_path = os.path.join(out_dir, f"vis_ism.png")
+                vis_img.save(save_path)
+                print(f"Saved visualization to {save_path}")
     finally:
         cv2.destroyAllWindows()
         del realsense
