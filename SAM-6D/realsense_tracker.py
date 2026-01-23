@@ -106,17 +106,18 @@ class ObjectTracker:
         self.model.ref_data["descriptors"] = self.model.descriptor_model.compute_features(templates, token_name="x_norm_clstoken").unsqueeze(0).data
         self.model.ref_data["appe_descriptors"] = self.model.descriptor_model.compute_masked_patch_feature(templates, masks_cropped[:, 0, :, :]).unsqueeze(0).data
         
-    def batch_input_data(self, depth_path, device):
+    def batch_input_data(self, depth_bop: np.array) -> dict:
+        """ Prepare batch input data from depth image """
         batch = {}
-        depth = np.array(imageio.imread(depth_path)).astype(np.int32)
+        depth = np.array(depth_bop).astype(np.int32)
         cam_K = np.array(self.cam_K).reshape((3, 3))
         depth_scale = np.array(self.depth_scale)
 
-        batch["depth"] = torch.from_numpy(depth).unsqueeze(0).to(device)
-        batch["cam_intrinsic"] = torch.from_numpy(cam_K).unsqueeze(0).to(device)
-        batch['depth_scale'] = torch.from_numpy(depth_scale).unsqueeze(0).to(device)
+        batch["depth"] = torch.from_numpy(depth).unsqueeze(0).to(self.device)
+        batch["cam_intrinsic"] = torch.from_numpy(cam_K).unsqueeze(0).to(self.device)
+        batch['depth_scale'] = torch.from_numpy(depth_scale).unsqueeze(0).to(self.device)
         return batch
-    
+
     def visualize(self, rgb, detections, save_path="tmp.png"):
         img = rgb.copy()
         gray = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2GRAY)
@@ -155,52 +156,60 @@ class ObjectTracker:
         concat.paste(prediction, (img.shape[1], 0))
         return concat
 
-    def run_segmentation_inference(self, rgb_path: str, depth_path: str):
-        """ Run segmentation inference on a single RGB-D frame """
-        rgb = Image.open(rgb_path).convert("RGB")
+    def run_segmentation_inference(self, color_bgr: np.ndarray, depth_bop: np.ndarray):
+        """Run segmentation inference on a single RGB-D frame."""
+        rgb = Image.fromarray(cv2.cvtColor(color_bgr, cv2.COLOR_BGR2RGB))
+
         detections = self.model.segmentor_model.generate_masks(np.array(rgb))
         detections = Detections(detections)
         query_decriptors, query_appe_descriptors = self.model.descriptor_model.forward(np.array(rgb), detections)
 
         # matching descriptors
-        (idx_selected_proposals, pred_idx_objects, semantic_score, best_template,) = self.model.compute_semantic_score(query_decriptors)
+        idx_selected_proposals, pred_idx_objects, semantic_score, best_template = \
+            self.model.compute_semantic_score(query_decriptors)
 
         # update detections
         detections.filter(idx_selected_proposals)
         query_appe_descriptors = query_appe_descriptors[idx_selected_proposals, :]
 
         # compute the appearance score
-        appe_scores, ref_aux_descriptor= self.model.compute_appearance_score(best_template, pred_idx_objects, query_appe_descriptors)
+        appe_scores, ref_aux_descriptor = self.model.compute_appearance_score(
+            best_template, pred_idx_objects, query_appe_descriptors
+        )
 
         # compute the geometric score
-        batch = self.batch_input_data(depth_path, self.device)
+        batch = self.batch_input_data(depth_bop)
+
         template_poses = get_obj_poses_from_template_level(level=2, pose_distribution="all")
         template_poses[:, :3, 3] *= 0.4
         poses = torch.tensor(template_poses).to(torch.float32).to(self.device)
-        self.model.ref_data["poses"] =  poses[load_index_level_in_level2(0, "all"), :, :]
+        self.model.ref_data["poses"] = poses[load_index_level_in_level2(0, "all"), :, :]
 
         mesh = trimesh.load_mesh(self.cad_path)
         model_points = mesh.sample(2048).astype(np.float32) / 1000.0
         self.model.ref_data["pointcloud"] = torch.tensor(model_points).unsqueeze(0).data.to(self.device)
-        
-        image_uv = self.model.project_template_to_image(best_template, pred_idx_objects, batch, detections.masks)
 
-        geometric_score, visible_ratio = self.model.compute_geometric_score(image_uv, detections, query_appe_descriptors, ref_aux_descriptor, visible_thred=self.model.visible_thred)
+        image_uv = self.model.project_template_to_image(best_template, pred_idx_objects, batch, detections.masks)
+        geometric_score, visible_ratio = self.model.compute_geometric_score(
+            image_uv, detections, query_appe_descriptors, ref_aux_descriptor, visible_thred=self.model.visible_thred
+        )
 
         # final score
-        final_score = (semantic_score + appe_scores + geometric_score*visible_ratio) / (1 + 1 + visible_ratio)
+        final_score = (semantic_score + appe_scores + geometric_score * visible_ratio) / (1 + 1 + visible_ratio)
 
         detections.add_attribute("scores", final_score)
-        detections.add_attribute("object_ids", torch.zeros_like(final_score))   
-            
+        detections.add_attribute("object_ids", torch.zeros_like(final_score))
+
         detections.to_numpy()
         save_path = f"{self.output_dir}/sam6d_results/detection_ism"
         detections.save_to_file(0, 0, 0, save_path, "Custom", return_results=False)
-        detections = convert_npz_to_json(idx=0, list_npz_paths=[save_path+".npz"])
-        save_json_bop23(save_path+".json", detections)
-        vis_img = self.visualize(rgb, detections, f"{self.output_dir}/sam6d_results/vis_ism.png")
+        detections_json = convert_npz_to_json(idx=0, list_npz_paths=[save_path + ".npz"])
+        save_json_bop23(save_path + ".json", detections_json)
+
+        vis_img = self.visualize(rgb, detections_json, f"{self.output_dir}/sam6d_results/vis_ism.png")
         vis_img.save(f"{self.output_dir}/sam6d_results/vis_ism.png")
         print(f"Segmentation results saved to {self.output_dir}/sam6d_results/")
+
 
 
 # Main
@@ -231,37 +240,25 @@ def main():
         stability_score_thresh=args.stability_score_thresh,
     )
 
-    print("Try running inference on a single frame...")
-    tracker.run_segmentation_inference(
-        rgb_path="/home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D/Data/myObject/tomatoSoup/rgb.png",
-        depth_path="/home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D/Data/myObject/tomatoSoup/depth.png",
-    )
+    # print("Try running inference on a single frame...")
+    # tracker.run_segmentation_inference(
+    #     rgb_path="/home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D/Data/myObject/tomatoSoup/rgb.png",
+    #     depth_path="/home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D/Data/myObject/tomatoSoup/depth.png",
+    # )
 
-    # try:
-        
-    # finally:
-    #     del realsense
+    window_name = "SAM-6D Live (q to quit)"
+    cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
 
+    try:
+        for color_bgr, depth_bop in realsense.frames():
+            tracker.run_segmentation_inference(color_bgr, depth_bop)
 
-
-
-
-
-    # window_name = "SAM-6D Live (q to quit)"
-    # cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
-
-    # try:
-    #     for color_bgr, depth_bop in cam.frames():
-    #         rgb_pil, detections = tracker.run_segmentation_inference(color_bgr, depth_bop)
-    #         vis_bgr = visualize_best(rgb_pil, detections)
-    #         cv2.imshow(window_name, vis_bgr)
-
-    #         key = cv2.waitKey(1) & 0xFF
-    #         if key == ord("q"):
-    #             break
-    # finally:
-    #     cv2.destroyAllWindows()
-    #     del cam
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord("q"):
+                break
+    finally:
+        cv2.destroyAllWindows()
+        del realsense
 
 
 if __name__ == "__main__":
