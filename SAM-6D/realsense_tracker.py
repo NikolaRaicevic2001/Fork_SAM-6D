@@ -48,6 +48,13 @@ class ObjectTracker:
         self.depth_scale = depth_scale
         self.stability_score_thresh = stability_score_thresh
 
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        # Initialize Segmentation Model
+        self.initialize_segmentation_model()
+
+    def initialize_segmentation_model(self):
+        """ Initialize segmentation model """
         # Initialize Segmentation Model Configuration
         with initialize(version_base=None, config_path="Instance_Segmentation_Model/configs"):
             cfg = compose(config_name='run_inference.yaml')
@@ -66,16 +73,15 @@ class ObjectTracker:
             cfg.model.descriptor_model.checkpoint_dir = os.path.join(CKPT_ROOT, "dinov2")
 
         logging.info("Initializing model")
-        self.model = instantiate(cfg.model)
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model.descriptor_model.model = self.model.descriptor_model.model.to(self.device)
-        self.model.descriptor_model.model.device = self.device
+        self.model_segmentation = instantiate(cfg.model)
+        self.model_segmentation.descriptor_model.model = self.model_segmentation.descriptor_model.model.to(self.device)
+        self.model_segmentation.descriptor_model.model.device = self.device
 
         # if there is predictor in the model, move it to device
-        if hasattr(self.model.segmentor_model, "predictor"):
-            self.model.segmentor_model.predictor.model = (self.model.segmentor_model.predictor.model.to(self.device))
+        if hasattr(self.model_segmentation.segmentor_model, "predictor"):
+            self.model_segmentation.segmentor_model.predictor.model = (self.model_segmentation.segmentor_model.predictor.model.to(self.device))
         else:
-            self.model.segmentor_model.model.setup_model(device=self.device, verbose=True)
+            self.model_segmentation.segmentor_model.model.setup_model(device=self.device, verbose=True)
         logging.info(f"Moving models to {self.device} done!")
     
         logging.info("Initializing template")
@@ -102,9 +108,9 @@ class ObjectTracker:
         templates = proposal_processor(images=templates, boxes=boxes).to(self.device)
         masks_cropped = proposal_processor(images=masks, boxes=boxes).to(self.device)
 
-        self.model.ref_data = {}
-        self.model.ref_data["descriptors"] = self.model.descriptor_model.compute_features(templates, token_name="x_norm_clstoken").unsqueeze(0).data
-        self.model.ref_data["appe_descriptors"] = self.model.descriptor_model.compute_masked_patch_feature(templates, masks_cropped[:, 0, :, :]).unsqueeze(0).data
+        self.model_segmentation.ref_data = {}
+        self.model_segmentation.ref_data["descriptors"] = self.model_segmentation.descriptor_model.compute_features(templates, token_name="x_norm_clstoken").unsqueeze(0).data
+        self.model_segmentation.ref_data["appe_descriptors"] = self.model_segmentation.descriptor_model.compute_masked_patch_feature(templates, masks_cropped[:, 0, :, :]).unsqueeze(0).data
         
     def batch_input_data(self, depth_bop: np.array) -> dict:
         """ Prepare batch input data from depth image """
@@ -160,20 +166,20 @@ class ObjectTracker:
         """Run segmentation inference on a single RGB-D frame."""
         rgb = Image.fromarray(cv2.cvtColor(color_bgr, cv2.COLOR_BGR2RGB))
 
-        detections = self.model.segmentor_model.generate_masks(np.array(rgb))
+        detections = self.model_segmentation.segmentor_model.generate_masks(np.array(rgb))
         detections = Detections(detections)
-        query_decriptors, query_appe_descriptors = self.model.descriptor_model.forward(np.array(rgb), detections)
+        query_decriptors, query_appe_descriptors = self.model_segmentation.descriptor_model.forward(np.array(rgb), detections)
 
         # matching descriptors
         idx_selected_proposals, pred_idx_objects, semantic_score, best_template = \
-            self.model.compute_semantic_score(query_decriptors)
+            self.model_segmentation.compute_semantic_score(query_decriptors)
 
         # update detections
         detections.filter(idx_selected_proposals)
         query_appe_descriptors = query_appe_descriptors[idx_selected_proposals, :]
 
         # compute the appearance score
-        appe_scores, ref_aux_descriptor = self.model.compute_appearance_score(
+        appe_scores, ref_aux_descriptor = self.model_segmentation.compute_appearance_score(
             best_template, pred_idx_objects, query_appe_descriptors
         )
 
@@ -183,20 +189,19 @@ class ObjectTracker:
         template_poses = get_obj_poses_from_template_level(level=2, pose_distribution="all")
         template_poses[:, :3, 3] *= 0.4
         poses = torch.tensor(template_poses).to(torch.float32).to(self.device)
-        self.model.ref_data["poses"] = poses[load_index_level_in_level2(0, "all"), :, :]
+        self.model_segmentation.ref_data["poses"] = poses[load_index_level_in_level2(0, "all"), :, :]
 
         mesh = trimesh.load_mesh(self.cad_path)
         model_points = mesh.sample(2048).astype(np.float32) / 1000.0
-        self.model.ref_data["pointcloud"] = torch.tensor(model_points).unsqueeze(0).data.to(self.device)
+        self.model_segmentation.ref_data["pointcloud"] = torch.tensor(model_points).unsqueeze(0).data.to(self.device)
 
-        image_uv = self.model.project_template_to_image(best_template, pred_idx_objects, batch, detections.masks)
-        geometric_score, visible_ratio = self.model.compute_geometric_score(
-            image_uv, detections, query_appe_descriptors, ref_aux_descriptor, visible_thred=self.model.visible_thred
+        image_uv = self.model_segmentation.project_template_to_image(best_template, pred_idx_objects, batch, detections.masks)
+        geometric_score, visible_ratio = self.model_segmentation.compute_geometric_score(
+            image_uv, detections, query_appe_descriptors, ref_aux_descriptor, visible_thred=self.model_segmentation.visible_thred
         )
 
         # final score
         final_score = (semantic_score + appe_scores + geometric_score * visible_ratio) / (1 + 1 + visible_ratio)
-
         detections.add_attribute("scores", final_score)
         detections.add_attribute("object_ids", torch.zeros_like(final_score))
 
@@ -210,6 +215,7 @@ class ObjectTracker:
         vis_img.save(f"{self.output_dir}/sam6d_results/vis_ism.png")
         print(f"Segmentation results saved to {self.output_dir}/sam6d_results/")
 
+        return vis_img
 
 
 # Main
@@ -240,18 +246,13 @@ def main():
         stability_score_thresh=args.stability_score_thresh,
     )
 
-    # print("Try running inference on a single frame...")
-    # tracker.run_segmentation_inference(
-    #     rgb_path="/home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D/Data/myObject/tomatoSoup/rgb.png",
-    #     depth_path="/home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D/Data/myObject/tomatoSoup/depth.png",
-    # )
-
     window_name = "SAM-6D Live (q to quit)"
     cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
 
     try:
         for color_bgr, depth_bop in realsense.frames():
-            tracker.run_segmentation_inference(color_bgr, depth_bop)
+            vis_img = tracker.run_segmentation_inference(color_bgr, depth_bop)
+            cv2.imshow(window_name, cv2.cvtColor(np.array(vis_img), cv2.COLOR_RGB2BGR))
 
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):
