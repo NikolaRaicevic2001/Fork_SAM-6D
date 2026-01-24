@@ -91,8 +91,8 @@ class ObjectTracker:
         self.cfg.det_score_thresh = det_score_thresh
         gorilla.utils.set_cuda_visible_devices(gpu_ids = self.cfg.gpus)
 
-        # # Initialize Segmentation Model
-        # self.initialize_segmentation_model()
+        # Initialize Segmentation Model
+        self.initialize_segmentation_model()
 
         # Initialize Pose Estimation Model
         self.initialize_pose_estimation_model()
@@ -419,11 +419,12 @@ class ObjectTracker:
 
         # Normal visualize output 
         vis_img = self.visualize(rgb, detections_json, save_path=None)
-        return vis_img
+        return vis_img, detections_json
 
-    def run_pose_estimation_inference(self):
+    def run_pose_estimation_inference(self, color_bgr: np.ndarray = None, depth_bop: np.ndarray = None):
         """ Run pose estimation inference on a batch input data """
-        def get_test_data(rgb_path, depth_path, cam_path, cad_path, seg_path, det_score_thresh, cfg):
+
+        def get_test_data(color_bgr, depth_bop, cad_path, seg_path, det_score_thresh, cfg):
             dets = []
             with open(seg_path) as f:
                 dets_ = json.load(f) # keys: scene_id, image_id, category_id, bbox, score, segmentation
@@ -432,13 +433,12 @@ class ObjectTracker:
                     dets.append(det)
             del dets_
 
-            cam_info = json.load(open(cam_path))
-            K = np.array(cam_info['cam_K']).reshape(3, 3)
+            K = np.array(self.cam_K).reshape(3, 3)
 
-            whole_image = load_im(rgb_path).astype(np.uint8)
+            whole_image = color_bgr.astype(np.uint8)
             if len(whole_image.shape)==2:
                 whole_image = np.concatenate([whole_image[:,:,None], whole_image[:,:,None], whole_image[:,:,None]], axis=2)
-            whole_depth = load_im(depth_path).astype(np.float32) * cam_info['depth_scale'] / 1000.0
+            whole_depth = depth_bop.astype(np.float32) * self.depth_scale / 1000.0
             whole_pts = get_point_cloud_from_depth(whole_depth, K)
 
             mesh = trimesh.load_mesh(cad_path)
@@ -515,9 +515,8 @@ class ObjectTracker:
 
         print("=> loading input data ...")
         input_data, img, whole_pts, model_points, detections = get_test_data(
-            "/home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D/Data/myObject/tomatoSoup/rgb.png", 
-            "/home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D/Data/myObject/tomatoSoup/depth.png", 
-            "/home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D/Data/myObject/tomatoSoup/camera.json", 
+            color_bgr, 
+            depth_bop, 
             self.cad_path, 
             os.path.join(self.output_dir, "sam6d_results", "detection_ism.json"),
             self.cfg.det_score_thresh, 
@@ -555,7 +554,7 @@ class ObjectTracker:
         K = input_data['K'].detach().cpu().numpy()[valid_masks]
         vis_img = self.visualize_pose_estimation(img, pred_rot[valid_masks], pred_trans[valid_masks], model_points*1000, K, save_path)
         vis_img.save(save_path)
-
+        return vis_img
 
 # Main
 def main():
@@ -597,29 +596,28 @@ def main():
         exp_id=args.exp_id,
     )
 
-    print("Test pose estimation inference ...")
-    tracker.run_pose_estimation_inference()
+    window_name = "SAM-6D Live (q to quit)"
+    cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
 
-    # window_name = "SAM-6D Live (q to quit)"
-    # cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
+    try:
+        for color_bgr, depth_bop in realsense.frames():
+            vis_img_ism, detections_json = tracker.run_segmentation_inference(color_bgr, depth_bop)
+            vis_img_pem = tracker.run_pose_estimation_inference(color_bgr, depth_bop)
 
-    # try:
-    #     for color_bgr, depth_bop in realsense.frames():
-    #         vis_img = tracker.run_segmentation_inference(color_bgr, depth_bop)
-    #         cv2.imshow(window_name, cv2.cvtColor(np.array(vis_img), cv2.COLOR_RGB2BGR))
+            cv2.imshow(window_name, cv2.cvtColor(np.array(vis_img_pem), cv2.COLOR_RGB2BGR))
 
-    #         key = cv2.waitKey(1) & 0xFF
-    #         if key == ord("q"):
-    #             break
-    #         elif key == ord("s"):
-    #             out_dir = os.path.join(args.output_dir, "sam6d_results")
-    #             os.makedirs(out_dir, exist_ok=True)
-    #             save_path = os.path.join(out_dir, f"vis_ism.png")
-    #             vis_img.save(save_path)
-    #             print(f"Saved visualization to {save_path}")
-    # finally:
-    #     cv2.destroyAllWindows()
-    #     del realsense
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord("q"):
+                break
+            elif key == ord("s"):
+                out_dir = os.path.join(args.output_dir, "sam6d_results")
+                os.makedirs(out_dir, exist_ok=True)
+                save_path = os.path.join(out_dir, f"vis_ism.png")
+                vis_img_ism.save(save_path)
+                print(f"Saved visualization to {save_path}")
+    finally:
+        cv2.destroyAllWindows()
+        del realsense
 
 
 if __name__ == "__main__":
