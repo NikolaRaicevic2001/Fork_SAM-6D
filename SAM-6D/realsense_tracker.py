@@ -307,19 +307,21 @@ class ObjectTracker:
         concat.paste(right, (left.width, 0))
         return concat
     
-    def visualize_pose_estimation(self, rgb, pred_rot, pred_trans, model_points, K, save_path):
-        img = draw_detections(rgb, pred_rot, pred_trans, model_points, K, color=(255, 0, 0))
-        img = Image.fromarray(np.uint8(img))
-        img.save(save_path)
-        prediction = Image.open(save_path)
-        
-        # concat side by side in PIL
-        rgb = Image.fromarray(np.uint8(rgb))
-        img = np.array(img)
-        concat = Image.new('RGB', (img.shape[1] + prediction.size[0], img.shape[0]))
-        concat.paste(rgb, (0, 0))
-        concat.paste(prediction, (img.shape[1], 0))
+    def visualize_pose_estimation(self, rgb_bgr, pred_rot, pred_trans, model_points, K):
+        # Ensure RGB for PIL + drawing
+        rgb = cv2.cvtColor(rgb_bgr, cv2.COLOR_BGR2RGB)
+
+        # draw_detections should return an RGB uint8 image (H,W,3)
+        overlay = draw_detections(rgb, pred_rot, pred_trans, model_points, K, color=(255, 0, 0))
+
+        left = Image.fromarray(rgb.astype(np.uint8))
+        right = Image.fromarray(overlay.astype(np.uint8))
+
+        concat = Image.new("RGB", (left.width + right.width, left.height))
+        concat.paste(left, (0, 0))
+        concat.paste(right, (left.width, 0))
         return concat
+
 
     def run_segmentation_inference(self, color_bgr: np.ndarray, depth_bop: np.ndarray):
         """Run segmentation inference on a single RGB-D frame and always return a PIL image like visualize()."""
@@ -439,7 +441,6 @@ class ObjectTracker:
         model_points = mesh.sample(cfg_test_dataset.n_sample_model_point).astype(np.float32) / 1000.0
         radius = np.max(np.linalg.norm(model_points, axis=1))
 
-
         all_rgb = []
         all_cloud = []
         all_rgb_choose = []
@@ -525,17 +526,15 @@ class ObjectTracker:
         pred_trans = out['pred_t'].detach().cpu().numpy() * 1000
 
         print("=> saving results ...")
-        os.makedirs(f"{self.output_dir}/sam6d_results", exist_ok=True)
         for idx, det in enumerate(detections):
             detections[idx]['score'] = float(pose_scores[idx])
             detections[idx]['R'] = list(pred_rot[idx].tolist())
             detections[idx]['t'] = list(pred_trans[idx].tolist())
 
         print("=> visualizating ...")
-        save_path = os.path.join(f"{self.output_dir}/sam6d_results", 'vis_pem.png')
         valid_masks = pose_scores == pose_scores.max()
         K = input_data['K'].detach().cpu().numpy()[valid_masks]
-        vis_img = self.visualize_pose_estimation(whole_image, pred_rot[valid_masks], pred_trans[valid_masks], model_points*1000, K, save_path)
+        vis_img = self.visualize_pose_estimation(whole_image, pred_rot[valid_masks], pred_trans[valid_masks], model_points*1000, K)
 
         return vis_img, detections
 
