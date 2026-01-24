@@ -415,113 +415,99 @@ class ObjectTracker:
         save_path = f"{self.output_dir}/sam6d_results/detection_ism"
         detections.save_to_file(0, 0, 0, save_path, "Custom", return_results=False)
         detections_json = convert_npz_to_json(idx=0, list_npz_paths=[save_path + ".npz"])
-        save_json_bop23(save_path + ".json", detections_json)
 
         # Normal visualize output 
         vis_img = self.visualize(rgb, detections_json, save_path=None)
         return vis_img, detections_json
 
-    def run_pose_estimation_inference(self, color_bgr: np.ndarray = None, depth_bop: np.ndarray = None):
+    def run_pose_estimation_inference(self, color_bgr: np.ndarray = None, depth_bop: np.ndarray = None, detections_json: list = None):
         """ Run pose estimation inference on a batch input data """
+        # Filter detections
+        dets = [d for d in detections_json if d.get("score", 0.0) > self.cfg.det_score_thresh]
+        if len(dets) == 0:
+            raise RuntimeError(f"No detections above det_score_thresh={self.cfg.det_score_thresh}")
 
-        def get_test_data(color_bgr, depth_bop, cad_path, seg_path, det_score_thresh, cfg):
-            dets = []
-            with open(seg_path) as f:
-                dets_ = json.load(f) # keys: scene_id, image_id, category_id, bbox, score, segmentation
-            for det in dets_:
-                if det['score'] > det_score_thresh:
-                    dets.append(det)
-            del dets_
-
-            K = np.array(self.cam_K).reshape(3, 3)
-
-            whole_image = color_bgr.astype(np.uint8)
-            if len(whole_image.shape)==2:
+        whole_image = color_bgr.astype(np.uint8)
+        if len(whole_image.shape)==2:
                 whole_image = np.concatenate([whole_image[:,:,None], whole_image[:,:,None], whole_image[:,:,None]], axis=2)
-            whole_depth = depth_bop.astype(np.float32) * self.depth_scale / 1000.0
-            whole_pts = get_point_cloud_from_depth(whole_depth, K)
+        whole_depth = depth_bop.astype(np.float32) * self.depth_scale / 1000.0
+        K = np.array(self.cam_K).reshape(3, 3)
+        whole_pts = get_point_cloud_from_depth(whole_depth, K)
+        cfg_test_dataset = self.cfg.test_dataset
 
-            mesh = trimesh.load_mesh(cad_path)
-            model_points = mesh.sample(cfg.n_sample_model_point).astype(np.float32) / 1000.0
-            radius = np.max(np.linalg.norm(model_points, axis=1))
+        mesh = trimesh.load_mesh(self.cad_path)
+        model_points = mesh.sample(cfg_test_dataset.n_sample_model_point).astype(np.float32) / 1000.0
+        radius = np.max(np.linalg.norm(model_points, axis=1))
 
 
-            all_rgb = []
-            all_cloud = []
-            all_rgb_choose = []
-            all_score = []
-            all_dets = []
-            for inst in dets:
-                seg = inst['segmentation']
-                score = inst['score']
+        all_rgb = []
+        all_cloud = []
+        all_rgb_choose = []
+        all_score = []
+        all_dets = []
+        for inst in dets:
+            seg = inst['segmentation']
+            score = inst['score']
 
-                # mask
-                h,w = seg['size']
-                try:
-                    rle = cocomask.frPyObjects(seg, h, w)
-                except:
-                    rle = seg
-                mask = cocomask.decode(rle)
-                mask = np.logical_and(mask > 0, whole_depth > 0)
-                if np.sum(mask) > 32:
-                    bbox = get_bbox(mask)
-                    y1, y2, x1, x2 = bbox
-                else:
-                    continue
-                mask = mask[y1:y2, x1:x2]
-                choose = mask.astype(np.float32).flatten().nonzero()[0]
+            # mask
+            h,w = seg['size']
+            try:
+                rle = cocomask.frPyObjects(seg, h, w)
+            except:
+                rle = seg
+            mask = cocomask.decode(rle)
+            mask = np.logical_and(mask > 0, whole_depth > 0)
+            if np.sum(mask) > 32:
+                bbox = get_bbox(mask)
+                y1, y2, x1, x2 = bbox
+            else:
+                continue
+            mask = mask[y1:y2, x1:x2]
+            choose = mask.astype(np.float32).flatten().nonzero()[0]
 
-                # pts
-                cloud = whole_pts.copy()[y1:y2, x1:x2, :].reshape(-1, 3)[choose, :]
-                center = np.mean(cloud, axis=0)
-                tmp_cloud = cloud - center[None, :]
-                flag = np.linalg.norm(tmp_cloud, axis=1) < radius * 1.2
-                if np.sum(flag) < 4:
-                    continue
-                choose = choose[flag]
-                cloud = cloud[flag]
+            # pts
+            cloud = whole_pts.copy()[y1:y2, x1:x2, :].reshape(-1, 3)[choose, :]
+            center = np.mean(cloud, axis=0)
+            tmp_cloud = cloud - center[None, :]
+            flag = np.linalg.norm(tmp_cloud, axis=1) < radius * 1.2
+            if np.sum(flag) < 4:
+                continue
+            choose = choose[flag]
+            cloud = cloud[flag]
 
-                if len(choose) <= cfg.n_sample_observed_point:
-                    choose_idx = np.random.choice(np.arange(len(choose)), cfg.n_sample_observed_point)
-                else:
-                    choose_idx = np.random.choice(np.arange(len(choose)), cfg.n_sample_observed_point, replace=False)
-                choose = choose[choose_idx]
-                cloud = cloud[choose_idx]
+            if len(choose) <= cfg_test_dataset.n_sample_observed_point:
+                choose_idx = np.random.choice(np.arange(len(choose)), cfg_test_dataset.n_sample_observed_point)
+            else:
+                choose_idx = np.random.choice(np.arange(len(choose)), cfg_test_dataset.n_sample_observed_point, replace=False)
+            choose = choose[choose_idx]
+            cloud = cloud[choose_idx]
 
-                # rgb
-                rgb = whole_image.copy()[y1:y2, x1:x2, :][:,:,::-1]
-                if cfg.rgb_mask_flag:
-                    rgb = rgb * (mask[:,:,None]>0).astype(np.uint8)
-                rgb = cv2.resize(rgb, (cfg.img_size, cfg.img_size), interpolation=cv2.INTER_LINEAR)
-                rgb = rgb_transform(np.array(rgb))
-                rgb_choose = get_resize_rgb_choose(choose, [y1, y2, x1, x2], cfg.img_size)
+            # rgb
+            rgb = whole_image.copy()[y1:y2, x1:x2, :][:,:,::-1]
+            if cfg_test_dataset.rgb_mask_flag:
+                rgb = rgb * (mask[:,:,None]>0).astype(np.uint8)
+            rgb = cv2.resize(rgb, (cfg_test_dataset.img_size, cfg_test_dataset.img_size), interpolation=cv2.INTER_LINEAR)
+            rgb = rgb_transform(np.array(rgb))
+            rgb_choose = get_resize_rgb_choose(choose, [y1, y2, x1, x2], cfg_test_dataset.img_size)
+            all_rgb.append(torch.FloatTensor(rgb))
+            all_cloud.append(torch.FloatTensor(cloud))
+            all_rgb_choose.append(torch.IntTensor(rgb_choose).long())
+            all_score.append(score)
+            all_dets.append(inst)
 
-                all_rgb.append(torch.FloatTensor(rgb))
-                all_cloud.append(torch.FloatTensor(cloud))
-                all_rgb_choose.append(torch.IntTensor(rgb_choose).long())
-                all_score.append(score)
-                all_dets.append(inst)
+        ret_dict = {}
+        ret_dict['pts'] = torch.stack(all_cloud).cuda()
+        ret_dict['rgb'] = torch.stack(all_rgb).cuda()
+        ret_dict['rgb_choose'] = torch.stack(all_rgb_choose).cuda()
+        ret_dict['score'] = torch.FloatTensor(all_score).cuda()
 
-            ret_dict = {}
-            ret_dict['pts'] = torch.stack(all_cloud).cuda()
-            ret_dict['rgb'] = torch.stack(all_rgb).cuda()
-            ret_dict['rgb_choose'] = torch.stack(all_rgb_choose).cuda()
-            ret_dict['score'] = torch.FloatTensor(all_score).cuda()
+        ninstance = ret_dict['pts'].size(0)
+        ret_dict['model'] = torch.FloatTensor(model_points).unsqueeze(0).repeat(ninstance, 1, 1).cuda()
+        ret_dict['K'] = torch.FloatTensor(K).unsqueeze(0).repeat(ninstance, 1, 1).cuda()
 
-            ninstance = ret_dict['pts'].size(0)
-            ret_dict['model'] = torch.FloatTensor(model_points).unsqueeze(0).repeat(ninstance, 1, 1).cuda()
-            ret_dict['K'] = torch.FloatTensor(K).unsqueeze(0).repeat(ninstance, 1, 1).cuda()
-            return ret_dict, whole_image, whole_pts.reshape(-1, 3), model_points, all_dets
-
-        print("=> loading input data ...")
-        input_data, img, whole_pts, model_points, detections = get_test_data(
-            color_bgr, 
-            depth_bop, 
-            self.cad_path, 
-            os.path.join(self.output_dir, "sam6d_results", "detection_ism.json"),
-            self.cfg.det_score_thresh, 
-            self.cfg.test_dataset
-        )
+        # Prepare input data
+        input_data = ret_dict
+        detections = all_dets
         ninstance = input_data['pts'].size(0)
 
         print("=> running model ...")
@@ -545,16 +531,13 @@ class ObjectTracker:
             detections[idx]['R'] = list(pred_rot[idx].tolist())
             detections[idx]['t'] = list(pred_trans[idx].tolist())
 
-        with open(os.path.join(f"{self.output_dir}/sam6d_results", 'detection_pem.json'), "w") as f:
-            json.dump(detections, f)
-
         print("=> visualizating ...")
         save_path = os.path.join(f"{self.output_dir}/sam6d_results", 'vis_pem.png')
         valid_masks = pose_scores == pose_scores.max()
         K = input_data['K'].detach().cpu().numpy()[valid_masks]
-        vis_img = self.visualize_pose_estimation(img, pred_rot[valid_masks], pred_trans[valid_masks], model_points*1000, K, save_path)
-        vis_img.save(save_path)
-        return vis_img
+        vis_img = self.visualize_pose_estimation(whole_image, pred_rot[valid_masks], pred_trans[valid_masks], model_points*1000, K, save_path)
+
+        return vis_img, detections
 
 # Main
 def main():
@@ -602,7 +585,7 @@ def main():
     try:
         for color_bgr, depth_bop in realsense.frames():
             vis_img_ism, detections_json = tracker.run_segmentation_inference(color_bgr, depth_bop)
-            vis_img_pem = tracker.run_pose_estimation_inference(color_bgr, depth_bop)
+            vis_img_pem, detections = tracker.run_pose_estimation_inference(color_bgr, depth_bop, detections_json)
 
             cv2.imshow(window_name, cv2.cvtColor(np.array(vis_img_pem), cv2.COLOR_RGB2BGR))
 
@@ -612,9 +595,19 @@ def main():
             elif key == ord("s"):
                 out_dir = os.path.join(args.output_dir, "sam6d_results")
                 os.makedirs(out_dir, exist_ok=True)
-                save_path = os.path.join(out_dir, f"vis_ism.png")
-                vis_img_ism.save(save_path)
-                print(f"Saved visualization to {save_path}")
+
+                # Save segmentation results
+                save_json_bop23(os.path.join(out_dir, "detection_ism.json"), detections_json)
+                vis_img_ism.save(os.path.join(out_dir, f"vis_ism.png"))
+                print(f"Saved visualization to {os.path.join(out_dir, f'vis_ism.png')}")
+
+                # Save pose estimation results
+                with open(os.path.join(out_dir, 'detection_pem.json'), "w") as f:
+                    json.dump(detections, f)
+                vis_img_pem.save(os.path.join(out_dir, f"vis_pem.png"))
+                print(f"Saved visualization to {os.path.join(out_dir, f'vis_pem.png')}")
+
+        
     finally:
         cv2.destroyAllWindows()
         del realsense
