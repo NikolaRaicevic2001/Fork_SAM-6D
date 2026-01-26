@@ -55,6 +55,41 @@ logging.basicConfig(level=logging.INFO)
 rgb_transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
 SCALE = 1.0
 
+# Helper Functions
+def rotmat_to_quat_wxyz(R: np.ndarray) -> np.ndarray:
+    # numerically stable conversion
+    q = np.empty(4, dtype=np.float64)
+    tr = np.trace(R)
+    if tr > 0:
+        S = np.sqrt(tr + 1.0) * 2
+        q[0] = 0.25 * S
+        q[1] = (R[2,1] - R[1,2]) / S
+        q[2] = (R[0,2] - R[2,0]) / S
+        q[3] = (R[1,0] - R[0,1]) / S
+    else:
+        i = int(np.argmax([R[0,0], R[1,1], R[2,2]]))
+        if i == 0:
+            S = np.sqrt(1.0 + R[0,0] - R[1,1] - R[2,2]) * 2
+            q[0] = (R[2,1] - R[1,2]) / S
+            q[1] = 0.25 * S
+            q[2] = (R[0,1] + R[1,0]) / S
+            q[3] = (R[0,2] + R[2,0]) / S
+        elif i == 1:
+            S = np.sqrt(1.0 + R[1,1] - R[0,0] - R[2,2]) * 2
+            q[0] = (R[0,2] - R[2,0]) / S
+            q[1] = (R[0,1] + R[1,0]) / S
+            q[2] = 0.25 * S
+            q[3] = (R[1,2] + R[2,1]) / S
+        else:
+            S = np.sqrt(1.0 + R[2,2] - R[0,0] - R[1,1]) * 2
+            q[0] = (R[1,0] - R[0,1]) / S
+            q[1] = (R[0,2] + R[2,0]) / S
+            q[2] = (R[1,2] + R[2,1]) / S
+            q[3] = 0.25 * S
+    # normalize
+    q /= np.linalg.norm(q) + 1e-12
+    return q
+
 # ObjectTracker
 class ObjectTracker:
     def __init__( self, 
@@ -556,6 +591,7 @@ class ObjectTracker:
 
         valid_masks = pose_scores == pose_scores.max()
         K = ret_dict['K'].detach().cpu().numpy()[valid_masks]
+
         if self.visualize:
             vis_img = self.visualize_pem(whole_image, message= None, pred_rot=pred_rot[valid_masks], pred_trans=pred_trans[valid_masks], model_points=self.model_points_pem*1000, K=K)
             return vis_img, all_dets
@@ -611,9 +647,29 @@ def main():
         cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
 
     try:
+        frame_i = 0
         for color_bgr, depth_bop in realsense.frames():
+            frame_i += 1
             vis_img_ism, detections_json = tracker.run_segmentation_inference(color_bgr, depth_bop)
-            vis_img_pem, detections = tracker.run_pose_estimation_inference(color_bgr, depth_bop, detections_json)
+            vis_img_pem, all_dets = tracker.run_pose_estimation_inference(color_bgr, depth_bop, detections_json)
+
+            if all_dets and (frame_i % 5 == 0):
+                print(f"--- Frame {frame_i} Pose Estimation Results ---")
+                best_det = max(all_dets, key=lambda d: float(d.get("score", -1e9)))
+
+                if "R" not in best_det or "t" not in best_det:
+                    print("[POSE] Best detection missing R/t")
+                else:
+                    R_best = np.squeeze(np.array(best_det["R"], dtype=np.float32))
+                    t_best = np.squeeze(np.array(best_det["t"], dtype=np.float32))  
+                    if R_best.shape != (3, 3) or t_best.shape != (3,):
+                        print(f"[POSE] Unexpected shapes: R={R_best.shape}, t={t_best.shape}")
+                    else:
+                        q_best = rotmat_to_quat_wxyz(R_best)
+                        t_m = t_best / 1000.0
+                        print("[POSE] score={:.4f}  t(m)=[{:.3f}, {:.3f}, {:.3f}]".format(float(best_det.get("score", 0.0)), t_m[0], t_m[1], t_m[2]))
+                        print("[POSE] q(wxyz)=[{:.5f}, {:.5f}, {:.5f}, {:.5f}]".format(q_best[0], q_best[1], q_best[2], q_best[3]))
+                        print("[POSE] R=\n", R_best)
 
             # Display side-by-side visualization
             if args.visualize: 
@@ -642,7 +698,7 @@ def main():
 
                     # Save pose estimation results
                     with open(os.path.join(out_dir, 'detection_pem.json'), "w") as f:
-                        json.dump(detections, f)
+                        json.dump(all_dets, f)
                     vis_img_pem.save(os.path.join(out_dir, f"vis_pem.png"))
                     print(f"Saved visualization to {os.path.join(out_dir, f'vis_pem.png')}")
 
