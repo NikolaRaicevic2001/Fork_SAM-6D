@@ -234,100 +234,91 @@ class ObjectTracker:
         with torch.no_grad():
             self.all_tem_pts, self.all_tem_feat = self.pose_estimation_model.feature_extraction.get_obj_feats(all_tem, all_tem_pts, all_tem_choose)
 
-    def batch_input_data(self, depth_bop: np.array) -> dict:
-        """ Prepare batch input data from depth image """
-        batch = {}
-        depth = np.array(depth_bop).astype(np.int32)
-        cam_K = np.array(self.cam_K).reshape((3, 3))
-        depth_scale = np.array(self.depth_scale)
+    def visualize_ism( self, rgb: Image.Image, detections, message: str, save_path: str):
+        """
+        Render side-by-side visualization.
 
-        batch["depth"] = torch.from_numpy(depth).unsqueeze(0).to(self.device)
-        batch["cam_intrinsic"] = torch.from_numpy(cam_K).unsqueeze(0).to(self.device)
-        batch['depth_scale'] = torch.from_numpy(depth_scale).unsqueeze(0).to(self.device)
-        return batch
-
-    def visualize_segmentation(self, rgb: Image.Image, detections, save_path=None):
-        img = rgb.copy()
-        gray = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2GRAY)
-        img = cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
-        colors = distinctipy.get_colors(len(detections))
-        alpha = 0.33
-
-        best_score = -1e9
-        best_det = None
-        for det in detections:
-            if det.get("score", 0.0) > best_score:
-                best_score = det.get("score", 0.0)
-                best_det = det
-
-        if best_det is None:
-            return self.visualize_fallback(rgb, "No best det")
-
-        mask = rle_to_mask(best_det["segmentation"])
-        edge = canny(mask)
-        edge = binary_dilation(edge, np.ones((2, 2)))
-
-        obj_id = int(best_det["category_id"])
-        temp_id = max(obj_id - 1, 0)
-
-        r = int(255 * colors[temp_id][0])
-        g = int(255 * colors[temp_id][1])
-        b = int(255 * colors[temp_id][2])
-
-        img[mask, 0] = alpha * r + (1 - alpha) * img[mask, 0]
-        img[mask, 1] = alpha * g + (1 - alpha) * img[mask, 1]
-        img[mask, 2] = alpha * b + (1 - alpha) * img[mask, 2]
-        img[edge, :] = 255
-
-        prediction = Image.fromarray(np.uint8(img))
-
-        # side-by-side
-        concat = Image.new("RGB", (rgb.width + prediction.width, rgb.height))
-        concat.paste(rgb.convert("RGB"), (0, 0))
-        concat.paste(prediction, (rgb.width, 0))
-
-        # If caller explicitly wants to save
-        if save_path is not None:
-            concat.save(save_path)
-
-        return concat
-
-    def visualize_fallback(self, rgb: Image.Image, message: str = "No detection"):
-        """ Returns a PIL.Image with the same layout as visualize() with a message """
+        Contract:
+        - if message is not None: fallback mode (detections ignored)
+        - if message is None: detections mode (expects list[dict] with RLE in det["segmentation"])
+        """
         left = rgb.convert("RGB")
         left_np = np.array(left)
 
         gray = cv2.cvtColor(left_np, cv2.COLOR_RGB2GRAY)
         right_np = cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
 
-        # Text overlay
-        cv2.putText(
-            right_np,
-            message,
-            (20, 40),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            1.0,
-            (255, 255, 255),
-            2,
-            cv2.LINE_AA,
-        )
+        if message is not None:
+            # Fallback: text overlay
+            cv2.putText( right_np, message, (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
+            right = Image.fromarray(right_np)
+        else:
+            # Detections: assume valid detections list 
+            colors = distinctipy.get_colors(max(1, len(detections)))
+            alpha = 0.33
 
-        right = Image.fromarray(right_np)
+            best_det = max(detections, key=lambda d: d.get("score", 0.0))
+            mask = rle_to_mask(best_det["segmentation"])
+            edge = canny(mask)
+            edge = binary_dilation(edge, np.ones((2, 2)))
+
+            obj_id = int(best_det.get("category_id", 1))
+            temp_id = max(obj_id - 1, 0)
+            temp_id = min(temp_id, len(colors) - 1)
+
+            r = int(255 * colors[temp_id][0])
+            g = int(255 * colors[temp_id][1])
+            b = int(255 * colors[temp_id][2])
+
+            right_np[mask, 0] = alpha * r + (1 - alpha) * right_np[mask, 0]
+            right_np[mask, 1] = alpha * g + (1 - alpha) * right_np[mask, 1]
+            right_np[mask, 2] = alpha * b + (1 - alpha) * right_np[mask, 2]
+            right_np[edge, :] = 255
+
+            right = Image.fromarray(np.uint8(right_np))
+
+        # Side-by-side concat
         concat = Image.new("RGB", (left.width + right.width, left.height))
         concat.paste(left, (0, 0))
         concat.paste(right, (left.width, 0))
+
+        if save_path is not None:
+            concat.save(save_path)
+
         return concat
     
-    def visualize_pose_estimation(self, rgb_bgr, pred_rot, pred_trans, model_points, K):
-        # Ensure RGB for PIL + drawing
+    def visualize_pem( self, rgb_bgr: np.ndarray, message: str = None, pred_rot=None, pred_trans=None, model_points=None, K=None):
+        """
+        Side-by-side visualization for PEM stage.
+
+        Contract:
+        - if message is not None: fallback mode (pose inputs ignored)
+        - if message is None: pose mode; expects pred_rot, pred_trans, model_points, K
+        where pred_rot/pred_trans are (N,3,3)/(N,3) (or compatible), and K is (N,3,3) or (3,3).
+        """
+        # Left panel: original RGB
         rgb = cv2.cvtColor(rgb_bgr, cv2.COLOR_BGR2RGB)
-
-        # draw_detections should return an RGB uint8 image (H,W,3)
-        overlay = draw_detections(rgb, pred_rot, pred_trans, model_points, K, color=(255, 0, 0))
-
         left = Image.fromarray(rgb.astype(np.uint8))
-        right = Image.fromarray(overlay.astype(np.uint8))
 
+        # Right panel base: grayscale background
+        gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+        right_np = cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
+
+        if message is not None:
+            # Fallback: draw message
+            cv2.putText( right_np, message, (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
+            right = Image.fromarray(right_np.astype(np.uint8))
+        else:
+            # Pose visualization: draw overlay onto the original RGB, then use it as right panel
+            if pred_rot is None or pred_trans is None or model_points is None or K is None:
+                # Defensive fallback if caller forgot to pass pose args
+                cv2.putText( right_np, "Pose args missing", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
+                right = Image.fromarray(right_np.astype(np.uint8))
+            else:
+                overlay = draw_detections(rgb, pred_rot, pred_trans, model_points, K, color=(255, 0, 0))
+                right = Image.fromarray(overlay.astype(np.uint8))
+
+        # Concatenate
         concat = Image.new("RGB", (left.width + right.width, left.height))
         concat.paste(left, (0, 0))
         concat.paste(right, (left.width, 0))
@@ -341,7 +332,7 @@ class ObjectTracker:
         masks = self.model_segmentation.segmentor_model.generate_masks(rgb_np)
         if masks is None or len(masks) == 0:
             print("No masks detected!")
-            return self.visualize_fallback(rgb, "No masks")
+            return self.visualize_ism(rgb, None, "No masks detected", save_path=None), []
         detections = Detections(masks)
 
         # Descriptor forward
@@ -349,7 +340,7 @@ class ObjectTracker:
             query_decriptors, query_appe_descriptors = self.model_segmentation.descriptor_model.forward(rgb_np, detections)
         except Exception as e:
             logging.warning(f"descriptor forward failed: {e}")
-            return self.visualize_fallback(rgb, "Descriptor failed")
+            return self.visualize_ism(rgb, None, "Descriptor failed", save_path=None), []
 
         # Semantic matching
         try:
@@ -357,16 +348,15 @@ class ObjectTracker:
                 self.model_segmentation.compute_semantic_score(query_decriptors)
         except Exception as e:
             logging.warning(f"compute_semantic_score failed: {e}")
-            return self.visualize_fallback(rgb, "Semantic failed")
+            return self.visualize_ism(rgb, None, "Semantic failed", save_path=None), []
 
         # Guard: nothing selected
         if idx_selected_proposals is None or len(idx_selected_proposals) == 0:
-            return self.visualize_fallback(rgb, "No proposals")
-
+            return self.visualize_ism(rgb, None, "No proposals", save_path=None), []
         # Filter detections
         detections.filter(idx_selected_proposals)
         if getattr(detections, "masks", None) is None or len(detections) == 0:
-            return self.visualize_fallback(rgb, "Empty after filter")
+            return self.visualize_ism(rgb, None, "Empty after filter", save_path=None), []
         query_appe_descriptors = query_appe_descriptors[idx_selected_proposals, :]
 
         # Appearance score
@@ -376,11 +366,18 @@ class ObjectTracker:
             )
         except Exception as e:
             logging.warning(f"compute_appearance_score failed: {e}")
-            return self.visualize_fallback(rgb, "Appearance failed")
+            return self.visualize_ism(rgb, None, "Appearance failed", save_path=None), []
 
         # Geometry stage 
         try:
-            batch = self.batch_input_data(depth_bop)
+            batch = {}
+            depth = np.array(depth_bop).astype(np.int32)
+            cam_K = np.array(self.cam_K).reshape((3, 3))
+            depth_scale = np.array(self.depth_scale)
+
+            batch["depth"] = torch.from_numpy(depth).unsqueeze(0).to(self.device)
+            batch["cam_intrinsic"] = torch.from_numpy(cam_K).unsqueeze(0).to(self.device)
+            batch['depth_scale'] = torch.from_numpy(depth_scale).unsqueeze(0).to(self.device)
 
             # Prevent N==1 squeezing issues by enforcing (N,H,W)
             if hasattr(detections, "masks") and detections.masks is not None:
@@ -395,7 +392,7 @@ class ObjectTracker:
 
         except Exception as e:
             logging.warning(f"Geometry failed/skipped: {e}")
-            return self.visualize_fallback(rgb, "Geometry failed")
+            return self.visualize_ism(rgb, None, "Geometry failed", save_path=None), []
 
         # Final score
         final_score = (semantic_score + appe_scores + geometric_score * visible_ratio) / (1 + 1 + visible_ratio)
@@ -406,21 +403,33 @@ class ObjectTracker:
         detections_json = detections.convert_to_json(scene_id=0, image_id=0, runtime=0, dataset_name="Custom")
 
         # Normal visualize output 
-        vis_img = self.visualize_segmentation(rgb, detections_json, save_path=None)
+        vis_img = self.visualize_ism(rgb, detections_json, message=None, save_path=None)
         return vis_img, detections_json
 
     def run_pose_estimation_inference(self, color_bgr: np.ndarray = None, depth_bop: np.ndarray = None, detections_json: list = None):
         """ Run pose estimation inference on a batch input data """
+        if color_bgr is None:
+            raise ValueError("color_bgr is required")
+        whole_image = color_bgr.astype(np.uint8)
+
+        if depth_bop is None:
+            return self.visualize_pem(whole_image, message="PEM: missing depth"), dets
+        K = np.array(self.cam_K).reshape(3, 3)
+
+        if detections_json is None or len(detections_json) == 0:
+            return self.visualize_pem(whole_image, message="PEM: no detections"), []
+
         # Filter detections
         dets = [d for d in detections_json if d.get("score", 0.0) > self.cfg.det_score_thresh]
         if len(dets) == 0:
-            raise RuntimeError(f"No detections above det_score_thresh={self.cfg.det_score_thresh}")
-
-        whole_image = color_bgr.astype(np.uint8)
+            return self.visualize_pem(whole_image, message=f"PEM: no dets > thresh ({self.cfg.det_score_thresh:.2f})"), []
+    
+        # Prepare depth / point cloud
         if len(whole_image.shape)==2:
                 whole_image = np.concatenate([whole_image[:,:,None], whole_image[:,:,None], whole_image[:,:,None]], axis=2)
         whole_depth = depth_bop.astype(np.float32) * self.depth_scale / 1000.0
-        K = np.array(self.cam_K).reshape(3, 3)
+        if np.count_nonzero(whole_depth) == 0:
+            return self.visualize_pem(whole_image, message="PEM: empty depth"), dets
         whole_pts = get_point_cloud_from_depth(whole_depth, K)
 
         all_rgb = []
@@ -478,6 +487,10 @@ class ObjectTracker:
             all_score.append(score)
             all_dets.append(inst)
 
+        # If everything got skipped during cropping -> fallback
+        if len(all_dets) == 0:
+            return self.visualize_pem(whole_image, message="PEM: no valid crops"), []
+
         ret_dict = {}
         ret_dict['pts'] = torch.stack(all_cloud).cuda()
         ret_dict['rgb'] = torch.stack(all_rgb).cuda()
@@ -487,17 +500,13 @@ class ObjectTracker:
         ninstance = ret_dict['pts'].size(0)
         ret_dict['model'] = torch.FloatTensor(self.model_points_pem).unsqueeze(0).repeat(ninstance, 1, 1).cuda()
         ret_dict['K'] = torch.FloatTensor(K).unsqueeze(0).repeat(ninstance, 1, 1).cuda()
-
-        # Prepare input data
-        input_data = ret_dict
-        detections = all_dets
-        ninstance = input_data['pts'].size(0)
+        ninstance = ret_dict['pts'].size(0)
 
         print("=> running model ...")
         with torch.no_grad():
-            input_data['dense_po'] = self.all_tem_pts.repeat(ninstance,1,1)
-            input_data['dense_fo'] = self.all_tem_feat.repeat(ninstance,1,1)
-            out = self.pose_estimation_model(input_data)
+            ret_dict['dense_po'] = self.all_tem_pts.repeat(ninstance,1,1)
+            ret_dict['dense_fo'] = self.all_tem_feat.repeat(ninstance,1,1)
+            out = self.pose_estimation_model(ret_dict)
 
         if 'pred_pose_score' in out.keys():
             pose_scores = out['pred_pose_score'] * out['score']
@@ -508,17 +517,16 @@ class ObjectTracker:
         pred_trans = out['pred_t'].detach().cpu().numpy() * 1000
 
         print("=> saving results ...")
-        for idx, det in enumerate(detections):
-            detections[idx]['score'] = float(pose_scores[idx])
-            detections[idx]['R'] = list(pred_rot[idx].tolist())
-            detections[idx]['t'] = list(pred_trans[idx].tolist())
+        for idx, det in enumerate(all_dets):
+            all_dets[idx]['score'] = float(pose_scores[idx])
+            all_dets[idx]['R'] = list(pred_rot[idx].tolist())
+            all_dets[idx]['t'] = list(pred_trans[idx].tolist())
 
         print("=> visualizating ...")
         valid_masks = pose_scores == pose_scores.max()
-        K = input_data['K'].detach().cpu().numpy()[valid_masks]
-        vis_img = self.visualize_pose_estimation(whole_image, pred_rot[valid_masks], pred_trans[valid_masks], self.model_points_pem*1000, K)
-
-        return vis_img, detections
+        K = ret_dict['K'].detach().cpu().numpy()[valid_masks]
+        vis_img = self.visualize_pem(whole_image, message= None, pred_rot=pred_rot[valid_masks], pred_trans=pred_trans[valid_masks], model_points=self.model_points_pem*1000, K=K)
+        return vis_img, all_dets
 
 # Main
 def main():
