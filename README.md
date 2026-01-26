@@ -102,7 +102,7 @@ echo "========================================="
 
 ### 4. Capture Image
 ```
-python realsense_tracker.py --out_dir /home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D/Data/myObject/tomatoSoup/outputs --intrinsics_for color
+python camera.py --out_dir /home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D/Data/myObject/tomatoSoup/outputs --intrinsics_for color
 ```
 
 ### 5. Run Object Tracking

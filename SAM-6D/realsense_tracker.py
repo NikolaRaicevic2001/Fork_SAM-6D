@@ -53,6 +53,7 @@ logging.basicConfig(level=logging.INFO)
 
 # Hyperparameters
 rgb_transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
+SCALE = 0.75
 
 # ObjectTracker
 class ObjectTracker:
@@ -98,8 +99,8 @@ class ObjectTracker:
         self.initialize_pose_estimation_model()
 
     def initialize_segmentation_model(self):
-        """ Initialize segmentation model """
-        # Initialize Segmentation Model Configuration
+        """ Initialize segmentation model configuration """
+
         with initialize(version_base=None, config_path="Instance_Segmentation_Model/configs"):
             cfg = compose(config_name='run_inference.yaml')
         if self.segmentor_model == "sam":
@@ -222,7 +223,6 @@ class ObjectTracker:
         with torch.no_grad():
             self.all_tem_pts, self.all_tem_feat = self.pose_estimation_model.feature_extraction.get_obj_feats(all_tem, all_tem_pts, all_tem_choose)
 
-
     def batch_input_data(self, depth_bop: np.array) -> dict:
         """ Prepare batch input data from depth image """
         batch = {}
@@ -235,7 +235,7 @@ class ObjectTracker:
         batch['depth_scale'] = torch.from_numpy(depth_scale).unsqueeze(0).to(self.device)
         return batch
 
-    def visualize(self, rgb: Image.Image, detections, save_path=None):
+    def visualize_segmentation(self, rgb: Image.Image, detections, save_path=None):
         img = rgb.copy()
         gray = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2GRAY)
         img = cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
@@ -321,7 +321,6 @@ class ObjectTracker:
         concat.paste(left, (0, 0))
         concat.paste(right, (left.width, 0))
         return concat
-
 
     def run_segmentation_inference(self, color_bgr: np.ndarray, depth_bop: np.ndarray):
         """Run segmentation inference on a single RGB-D frame and always return a PIL image like visualize()."""
@@ -419,7 +418,7 @@ class ObjectTracker:
         detections_json = convert_npz_to_json(idx=0, list_npz_paths=[save_path + ".npz"])
 
         # Normal visualize output 
-        vis_img = self.visualize(rgb, detections_json, save_path=None)
+        vis_img = self.visualize_segmentation(rgb, detections_json, save_path=None)
         return vis_img, detections_json
 
     def run_pose_estimation_inference(self, color_bgr: np.ndarray = None, depth_bop: np.ndarray = None, detections_json: list = None):
@@ -586,7 +585,17 @@ def main():
             vis_img_ism, detections_json = tracker.run_segmentation_inference(color_bgr, depth_bop)
             vis_img_pem, detections = tracker.run_pose_estimation_inference(color_bgr, depth_bop, detections_json)
 
-            cv2.imshow(window_name, cv2.cvtColor(np.array(vis_img_pem), cv2.COLOR_RGB2BGR))
+            # Display side-by-side
+            vis_ism_np = np.array(vis_img_ism)   
+            vis_pem_np = np.array(vis_img_pem)   
+            if vis_ism_np.shape[0] != vis_pem_np.shape[0]:          # Make sure heights match
+                h = min(vis_ism_np.shape[0], vis_pem_np.shape[0])
+                vis_ism_np = vis_ism_np[:h]
+                vis_pem_np = vis_pem_np[:h]
+            vis_ism_pem = np.vstack([vis_ism_np, vis_pem_np]) 
+            vis_ism_pem_bgr = cv2.cvtColor(vis_ism_pem, cv2.COLOR_RGB2BGR)
+            vis_ism_pem_bgr = cv2.resize(vis_ism_pem_bgr, None, fx=SCALE, fy=SCALE, interpolation=cv2.INTER_AREA)
+            cv2.imshow(window_name, vis_ism_pem_bgr)
 
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):
