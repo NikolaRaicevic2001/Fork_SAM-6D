@@ -62,6 +62,7 @@ class ObjectTracker:
                   cad_path: str,
                   cam_K: list,
                   depth_scale: float,
+                  visualize: bool = True,
                   segmentor_model: str = "sam",
                   stability_score_thresh: float = 0.97,
                   det_score_thresh: float = 0.2,
@@ -76,6 +77,7 @@ class ObjectTracker:
         self.cad_path = cad_path
         self.cam_K = cam_K
         self.depth_scale = depth_scale
+        self.visualize = visualize
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         # Initialize Segmentation parameters
@@ -326,21 +328,26 @@ class ObjectTracker:
 
     def run_segmentation_inference(self, color_bgr: np.ndarray, depth_bop: np.ndarray):
         """Run segmentation inference on a single RGB-D frame and always return a PIL image like visualize()."""
-        rgb = Image.fromarray(cv2.cvtColor(color_bgr, cv2.COLOR_BGR2RGB))
-        rgb_np = cv2.cvtColor(color_bgr, cv2.COLOR_BGR2RGB)
+        print(f"==> running segmentation inference ...")
+        whole_image = cv2.cvtColor(color_bgr, cv2.COLOR_BGR2RGB)
+        rgb_pil = Image.fromarray(whole_image) if self.visualize else None
 
-        masks = self.model_segmentation.segmentor_model.generate_masks(rgb_np)
+        masks = self.model_segmentation.segmentor_model.generate_masks(whole_image)
         if masks is None or len(masks) == 0:
-            print("No masks detected!")
-            return self.visualize_ism(rgb, None, "No masks detected", save_path=None), []
+            if self.visualize:
+                logging.warning("No masks detected")
+                return self.visualize_ism(rgb_pil, None, "No masks detected", save_path=None), []
+            return None, []
         detections = Detections(masks)
 
         # Descriptor forward
         try:
-            query_decriptors, query_appe_descriptors = self.model_segmentation.descriptor_model.forward(rgb_np, detections)
+            query_decriptors, query_appe_descriptors = self.model_segmentation.descriptor_model.forward(whole_image, detections)
         except Exception as e:
             logging.warning(f"descriptor forward failed: {e}")
-            return self.visualize_ism(rgb, None, "Descriptor failed", save_path=None), []
+            if self.visualize:
+                return self.visualize_ism(rgb_pil, None, "Descriptor failed", save_path=None), []
+            return None, []
 
         # Semantic matching
         try:
@@ -348,15 +355,22 @@ class ObjectTracker:
                 self.model_segmentation.compute_semantic_score(query_decriptors)
         except Exception as e:
             logging.warning(f"compute_semantic_score failed: {e}")
-            return self.visualize_ism(rgb, None, "Semantic failed", save_path=None), []
+            if self.visualize:
+                return self.visualize_ism(rgb_pil, None, "Semantic failed", save_path=None), []
+            return None, []
 
         # Guard: nothing selected
         if idx_selected_proposals is None or len(idx_selected_proposals) == 0:
-            return self.visualize_ism(rgb, None, "No proposals", save_path=None), []
+            if self.visualize:
+                return self.visualize_ism(rgb_pil, None, "No proposals", save_path=None), []
+            return None, []
         # Filter detections
         detections.filter(idx_selected_proposals)
         if getattr(detections, "masks", None) is None or len(detections) == 0:
-            return self.visualize_ism(rgb, None, "Empty after filter", save_path=None), []
+            logging.warning("No detections after filtering")
+            if self.visualize:
+                return self.visualize_ism(rgb_pil, None, "Empty after filter", save_path=None), []
+            return None, []
         query_appe_descriptors = query_appe_descriptors[idx_selected_proposals, :]
 
         # Appearance score
@@ -366,7 +380,9 @@ class ObjectTracker:
             )
         except Exception as e:
             logging.warning(f"compute_appearance_score failed: {e}")
-            return self.visualize_ism(rgb, None, "Appearance failed", save_path=None), []
+            if self.visualize:
+                return self.visualize_ism(rgb_pil, None, "Appearance failed", save_path=None), []
+            return None, []
 
         # Geometry stage 
         try:
@@ -392,7 +408,9 @@ class ObjectTracker:
 
         except Exception as e:
             logging.warning(f"Geometry failed/skipped: {e}")
-            return self.visualize_ism(rgb, None, "Geometry failed", save_path=None), []
+            if self.visualize:
+                return self.visualize_ism(rgb_pil, None, "Geometry failed", save_path=None), []
+            return None, []
 
         # Final score
         final_score = (semantic_score + appe_scores + geometric_score * visible_ratio) / (1 + 1 + visible_ratio)
@@ -402,34 +420,48 @@ class ObjectTracker:
         # Convert to list-of-dicts for visualize()
         detections_json = detections.convert_to_json(scene_id=0, image_id=0, runtime=0, dataset_name="Custom")
 
-        # Normal visualize output 
-        vis_img = self.visualize_ism(rgb, detections_json, message=None, save_path=None)
-        return vis_img, detections_json
+        if self.visualize:
+            vis_img = self.visualize_ism(rgb_pil, detections_json, message=None, save_path=None)
+            return vis_img, detections_json
+        return None, detections_json
 
     def run_pose_estimation_inference(self, color_bgr: np.ndarray = None, depth_bop: np.ndarray = None, detections_json: list = None):
         """ Run pose estimation inference on a batch input data """
+        print(f"==> running pose estimation inference ...")
         if color_bgr is None:
             raise ValueError("color_bgr is required")
         whole_image = color_bgr.astype(np.uint8)
 
         if depth_bop is None:
-            return self.visualize_pem(whole_image, message="PEM: missing depth"), dets
+            logging.warning("No depth input")
+            if self.visualize:
+                return self.visualize_pem(whole_image, message="PEM: no depth"), []
+            return None, []
         K = np.array(self.cam_K).reshape(3, 3)
 
         if detections_json is None or len(detections_json) == 0:
-            return self.visualize_pem(whole_image, message="PEM: no detections"), []
+            logging.warning("No detections input")
+            if self.visualize:
+                return self.visualize_pem(whole_image, message="PEM: no detections"), []
+            return None, []
 
         # Filter detections
         dets = [d for d in detections_json if d.get("score", 0.0) > self.cfg.det_score_thresh]
         if len(dets) == 0:
-            return self.visualize_pem(whole_image, message=f"PEM: no dets > thresh ({self.cfg.det_score_thresh:.2f})"), []
+            logging.warning(f"No detections above score thresh {self.cfg.det_score_thresh:.2f}")
+            if self.visualize:
+                return self.visualize_pem(whole_image, message=f"PEM: no dets > thresh ({self.cfg.det_score_thresh:.2f})"), []
+            return None, []
     
         # Prepare depth / point cloud
         if len(whole_image.shape)==2:
                 whole_image = np.concatenate([whole_image[:,:,None], whole_image[:,:,None], whole_image[:,:,None]], axis=2)
         whole_depth = depth_bop.astype(np.float32) * self.depth_scale / 1000.0
         if np.count_nonzero(whole_depth) == 0:
-            return self.visualize_pem(whole_image, message="PEM: empty depth"), dets
+            logging.warning("Empty depth map")
+            if self.visualize:
+                return self.visualize_pem(whole_image, message="PEM: empty depth"), []
+            return None, []
         whole_pts = get_point_cloud_from_depth(whole_depth, K)
 
         all_rgb = []
@@ -458,7 +490,7 @@ class ObjectTracker:
             choose = mask.astype(np.float32).flatten().nonzero()[0]
 
             # pts
-            cloud = whole_pts.copy()[y1:y2, x1:x2, :].reshape(-1, 3)[choose, :]
+            cloud = whole_pts[y1:y2, x1:x2, :].reshape(-1, 3)[choose, :]
             center = np.mean(cloud, axis=0)
             tmp_cloud = cloud - center[None, :]
             flag = np.linalg.norm(tmp_cloud, axis=1) < self.radius_pem * 1.2
@@ -475,7 +507,7 @@ class ObjectTracker:
             cloud = cloud[choose_idx]
 
             # rgb
-            rgb = whole_image.copy()[y1:y2, x1:x2, :][:,:,::-1]
+            rgb = whole_image[y1:y2, x1:x2, :][:,:,::-1]
             if self.cfg.test_dataset.rgb_mask_flag:
                 rgb = rgb * (mask[:,:,None]>0).astype(np.uint8)
             rgb = cv2.resize(rgb, (self.cfg.test_dataset.img_size, self.cfg.test_dataset.img_size), interpolation=cv2.INTER_LINEAR)
@@ -487,9 +519,11 @@ class ObjectTracker:
             all_score.append(score)
             all_dets.append(inst)
 
-        # If everything got skipped during cropping -> fallback
         if len(all_dets) == 0:
-            return self.visualize_pem(whole_image, message="PEM: no valid crops"), []
+            if self.visualize:
+                logging.warning("No valid crops for PEM")
+                return self.visualize_pem(whole_image, message="PEM: no valid crops"), []
+            return None, []
 
         ret_dict = {}
         ret_dict['pts'] = torch.stack(all_cloud).cuda()
@@ -502,7 +536,6 @@ class ObjectTracker:
         ret_dict['K'] = torch.FloatTensor(K).unsqueeze(0).repeat(ninstance, 1, 1).cuda()
         ninstance = ret_dict['pts'].size(0)
 
-        print("=> running model ...")
         with torch.no_grad():
             ret_dict['dense_po'] = self.all_tem_pts.repeat(ninstance,1,1)
             ret_dict['dense_fo'] = self.all_tem_feat.repeat(ninstance,1,1)
@@ -516,23 +549,27 @@ class ObjectTracker:
         pred_rot = out['pred_R'].detach().cpu().numpy()
         pred_trans = out['pred_t'].detach().cpu().numpy() * 1000
 
-        print("=> saving results ...")
         for idx, det in enumerate(all_dets):
             all_dets[idx]['score'] = float(pose_scores[idx])
             all_dets[idx]['R'] = list(pred_rot[idx].tolist())
             all_dets[idx]['t'] = list(pred_trans[idx].tolist())
 
-        print("=> visualizating ...")
         valid_masks = pose_scores == pose_scores.max()
         K = ret_dict['K'].detach().cpu().numpy()[valid_masks]
-        vis_img = self.visualize_pem(whole_image, message= None, pred_rot=pred_rot[valid_masks], pred_trans=pred_trans[valid_masks], model_points=self.model_points_pem*1000, K=K)
-        return vis_img, all_dets
+        if self.visualize:
+            vis_img = self.visualize_pem(whole_image, message= None, pred_rot=pred_rot[valid_masks], pred_trans=pred_trans[valid_masks], model_points=self.model_points_pem*1000, K=K)
+            return vis_img, all_dets
+        return None, all_dets
 
 # Main
 def main():
     parser = argparse.ArgumentParser(description="Live SAM-6D inference from RealSense stream.")
     parser.add_argument("--output_dir", type=str, required=True, help="Output directory.")
     parser.add_argument("--cad_path", type=str, required=True, help="Path to CAD model in mm units (e.g., obj_000004.ply).")
+    parser.add_argument("--visualize", action="store_true", help="Enable visualization (imshow + rendering).")
+    parser.add_argument("--no-visualize", dest="visualize", action="store_false", help="Disable visualization for max FPS.")
+    parser.set_defaults(visualize=True)
+
     # Segmentor parameters
     parser.add_argument("--segmentor_model", default="sam", choices=["sam", "fastsam"], help="Segmentor model to use.")
     parser.add_argument("--stability_score_thresh", default=0.97, type=float, help="stability_score_thresh of SAM")
@@ -559,6 +596,7 @@ def main():
         cad_path=args.cad_path,
         cam_K=camera_intrinsics["bop"]["cam_K"],
         depth_scale = camera_intrinsics["bop"]["depth_scale"],
+        visualize=args.visualize,
         segmentor_model=args.segmentor_model,
         stability_score_thresh=args.stability_score_thresh,
         det_score_thresh=args.det_score_thresh,
@@ -568,47 +606,50 @@ def main():
         exp_id=args.exp_id,
     )
 
-    window_name = "SAM-6D Live (q to quit)"
-    cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
+    if args.visualize:
+        window_name = "SAM-6D Live (q to quit)"
+        cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
 
     try:
         for color_bgr, depth_bop in realsense.frames():
             vis_img_ism, detections_json = tracker.run_segmentation_inference(color_bgr, depth_bop)
             vis_img_pem, detections = tracker.run_pose_estimation_inference(color_bgr, depth_bop, detections_json)
 
-            # Display side-by-side
-            vis_ism_np = np.array(vis_img_ism)   
-            vis_pem_np = np.array(vis_img_pem)   
-            if vis_ism_np.shape[0] != vis_pem_np.shape[0]:          
-                h = min(vis_ism_np.shape[0], vis_pem_np.shape[0])
-                vis_ism_np = vis_ism_np[:h]
-                vis_pem_np = vis_pem_np[:h]
-            vis_ism_pem = np.vstack([vis_ism_np, vis_pem_np]) 
-            vis_ism_pem_bgr = cv2.cvtColor(vis_ism_pem, cv2.COLOR_RGB2BGR)
-            vis_ism_pem_bgr = cv2.resize(vis_ism_pem_bgr, None, fx=SCALE, fy=SCALE, interpolation=cv2.INTER_AREA)
-            cv2.imshow(window_name, vis_ism_pem_bgr)
+            # Display side-by-side visualization
+            if args.visualize: 
+                vis_ism_np = np.array(vis_img_ism)   
+                vis_pem_np = np.array(vis_img_pem)   
+                if vis_ism_np.shape[0] != vis_pem_np.shape[0]:          
+                    h = min(vis_ism_np.shape[0], vis_pem_np.shape[0])
+                    vis_ism_np = vis_ism_np[:h]
+                    vis_pem_np = vis_pem_np[:h]
+                vis_ism_pem = np.vstack([vis_ism_np, vis_pem_np]) 
+                vis_ism_pem_bgr = cv2.cvtColor(vis_ism_pem, cv2.COLOR_RGB2BGR)
+                vis_ism_pem_bgr = cv2.resize(vis_ism_pem_bgr, None, fx=SCALE, fy=SCALE, interpolation=cv2.INTER_AREA)
+                cv2.imshow(window_name, vis_ism_pem_bgr)
+                key = cv2.waitKey(1) & 0xFF
 
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord("q"):
-                break
-            elif key == ord("s"):
-                out_dir = os.path.join(args.output_dir, "sam6d_results")
-                os.makedirs(out_dir, exist_ok=True)
+                if key == ord("q"):
+                    break
+                elif key == ord("s"):
+                    out_dir = os.path.join(args.output_dir, "sam6d_results")
+                    os.makedirs(out_dir, exist_ok=True)
 
-                # Save segmentation results
-                save_json_bop23(os.path.join(out_dir, "detection_ism.json"), detections_json)
-                vis_img_ism.save(os.path.join(out_dir, f"vis_ism.png"))
-                print(f"Saved visualization to {os.path.join(out_dir, f'vis_ism.png')}")
+                    # Save segmentation results
+                    save_json_bop23(os.path.join(out_dir, "detection_ism.json"), detections_json)
+                    vis_img_ism.save(os.path.join(out_dir, f"vis_ism.png"))
+                    print(f"Saved visualization to {os.path.join(out_dir, f'vis_ism.png')}")
 
-                # Save pose estimation results
-                with open(os.path.join(out_dir, 'detection_pem.json'), "w") as f:
-                    json.dump(detections, f)
-                vis_img_pem.save(os.path.join(out_dir, f"vis_pem.png"))
-                print(f"Saved visualization to {os.path.join(out_dir, f'vis_pem.png')}")
+                    # Save pose estimation results
+                    with open(os.path.join(out_dir, 'detection_pem.json'), "w") as f:
+                        json.dump(detections, f)
+                    vis_img_pem.save(os.path.join(out_dir, f"vis_pem.png"))
+                    print(f"Saved visualization to {os.path.join(out_dir, f'vis_pem.png')}")
 
         
     finally:
-        cv2.destroyAllWindows()
+        if args.visualize:
+            cv2.destroyAllWindows()
         del realsense
 
 
