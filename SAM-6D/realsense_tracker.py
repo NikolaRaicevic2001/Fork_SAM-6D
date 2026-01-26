@@ -53,7 +53,7 @@ logging.basicConfig(level=logging.INFO)
 
 # Hyperparameters
 rgb_transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
-SCALE = 0.75
+SCALE = 1.0
 
 # ObjectTracker
 class ObjectTracker:
@@ -94,9 +94,20 @@ class ObjectTracker:
 
         # Initialize Segmentation Model
         self.initialize_segmentation_model()
+        mesh = trimesh.load_mesh(self.cad_path)
+        model_points = mesh.sample(2048).astype(np.float32) / 1000.0
+        self.model_segmentation.ref_data["pointcloud"] = torch.tensor(model_points).unsqueeze(0).data.to(self.device)
+
+        template_poses = get_obj_poses_from_template_level(level=2, pose_distribution="all")
+        template_poses[:, :3, 3] *= 0.4
+        poses = torch.tensor(template_poses).to(torch.float32).to(self.device)
+        self.model_segmentation.ref_data["poses"] = poses[load_index_level_in_level2(0, "all"), :, :]
 
         # Initialize Pose Estimation Model
         self.initialize_pose_estimation_model()
+        mesh = trimesh.load_mesh(self.cad_path)
+        self.model_points_pem = mesh.sample(self.cfg.test_dataset.n_sample_model_point).astype(np.float32) / 1000.0
+        self.radius_pem = np.max(np.linalg.norm(self.model_points_pem, axis=1))
 
     def initialize_segmentation_model(self):
         """ Initialize segmentation model configuration """
@@ -325,14 +336,12 @@ class ObjectTracker:
     def run_segmentation_inference(self, color_bgr: np.ndarray, depth_bop: np.ndarray):
         """Run segmentation inference on a single RGB-D frame and always return a PIL image like visualize()."""
         rgb = Image.fromarray(cv2.cvtColor(color_bgr, cv2.COLOR_BGR2RGB))
-        rgb_np = np.array(rgb)
+        rgb_np = cv2.cvtColor(color_bgr, cv2.COLOR_BGR2RGB)
 
         masks = self.model_segmentation.segmentor_model.generate_masks(rgb_np)
         if masks is None or len(masks) == 0:
             print("No masks detected!")
             return self.visualize_fallback(rgb, "No masks")
-
-        print(f"{len(masks)} masks detected!")
         detections = Detections(masks)
 
         # Descriptor forward
@@ -358,7 +367,6 @@ class ObjectTracker:
         detections.filter(idx_selected_proposals)
         if getattr(detections, "masks", None) is None or len(detections) == 0:
             return self.visualize_fallback(rgb, "Empty after filter")
-
         query_appe_descriptors = query_appe_descriptors[idx_selected_proposals, :]
 
         # Appearance score
@@ -374,15 +382,6 @@ class ObjectTracker:
         try:
             batch = self.batch_input_data(depth_bop)
 
-            template_poses = get_obj_poses_from_template_level(level=2, pose_distribution="all")
-            template_poses[:, :3, 3] *= 0.4
-            poses = torch.tensor(template_poses).to(torch.float32).to(self.device)
-            self.model_segmentation.ref_data["poses"] = poses[load_index_level_in_level2(0, "all"), :, :]
-
-            mesh = trimesh.load_mesh(self.cad_path)
-            model_points = mesh.sample(2048).astype(np.float32) / 1000.0
-            self.model_segmentation.ref_data["pointcloud"] = torch.tensor(model_points).unsqueeze(0).data.to(self.device)
-
             # Prevent N==1 squeezing issues by enforcing (N,H,W)
             if hasattr(detections, "masks") and detections.masks is not None:
                 m = detections.masks
@@ -391,14 +390,8 @@ class ObjectTracker:
                 elif isinstance(m, np.ndarray) and m.ndim == 2:
                     detections.masks = m[None, ...]
 
-            image_uv = self.model_segmentation.project_template_to_image(
-                best_template, pred_idx_objects, batch, detections.masks
-            )
-
-            geometric_score, visible_ratio = self.model_segmentation.compute_geometric_score(
-                image_uv, detections, query_appe_descriptors, ref_aux_descriptor,
-                visible_thred=self.model_segmentation.visible_thred
-            )
+            image_uv = self.model_segmentation.project_template_to_image(best_template, pred_idx_objects, batch, detections.masks)
+            geometric_score, visible_ratio = self.model_segmentation.compute_geometric_score( image_uv, detections, query_appe_descriptors, ref_aux_descriptor, visible_thred=self.model_segmentation.visible_thred)
 
         except Exception as e:
             logging.warning(f"Geometry failed/skipped: {e}")
@@ -410,12 +403,7 @@ class ObjectTracker:
         detections.add_attribute("object_ids", torch.zeros_like(final_score))
 
         # Convert to list-of-dicts for visualize()
-        detections.to_numpy()
-
-        # If you still want to save, do it here (but consider not saving every frame)
-        save_path = f"{self.output_dir}/sam6d_results/detection_ism"
-        detections.save_to_file(0, 0, 0, save_path, "Custom", return_results=False)
-        detections_json = convert_npz_to_json(idx=0, list_npz_paths=[save_path + ".npz"])
+        detections_json = detections.convert_to_json(scene_id=0, image_id=0, runtime=0, dataset_name="Custom")
 
         # Normal visualize output 
         vis_img = self.visualize_segmentation(rgb, detections_json, save_path=None)
@@ -434,11 +422,6 @@ class ObjectTracker:
         whole_depth = depth_bop.astype(np.float32) * self.depth_scale / 1000.0
         K = np.array(self.cam_K).reshape(3, 3)
         whole_pts = get_point_cloud_from_depth(whole_depth, K)
-        cfg_test_dataset = self.cfg.test_dataset
-
-        mesh = trimesh.load_mesh(self.cad_path)
-        model_points = mesh.sample(cfg_test_dataset.n_sample_model_point).astype(np.float32) / 1000.0
-        radius = np.max(np.linalg.norm(model_points, axis=1))
 
         all_rgb = []
         all_cloud = []
@@ -469,26 +452,26 @@ class ObjectTracker:
             cloud = whole_pts.copy()[y1:y2, x1:x2, :].reshape(-1, 3)[choose, :]
             center = np.mean(cloud, axis=0)
             tmp_cloud = cloud - center[None, :]
-            flag = np.linalg.norm(tmp_cloud, axis=1) < radius * 1.2
+            flag = np.linalg.norm(tmp_cloud, axis=1) < self.radius_pem * 1.2
             if np.sum(flag) < 4:
                 continue
             choose = choose[flag]
             cloud = cloud[flag]
 
-            if len(choose) <= cfg_test_dataset.n_sample_observed_point:
-                choose_idx = np.random.choice(np.arange(len(choose)), cfg_test_dataset.n_sample_observed_point)
+            if len(choose) <= self.cfg.test_dataset.n_sample_observed_point:
+                choose_idx = np.random.choice(np.arange(len(choose)), self.cfg.test_dataset.n_sample_observed_point)
             else:
-                choose_idx = np.random.choice(np.arange(len(choose)), cfg_test_dataset.n_sample_observed_point, replace=False)
+                choose_idx = np.random.choice(np.arange(len(choose)), self.cfg.test_dataset.n_sample_observed_point, replace=False)
             choose = choose[choose_idx]
             cloud = cloud[choose_idx]
 
             # rgb
             rgb = whole_image.copy()[y1:y2, x1:x2, :][:,:,::-1]
-            if cfg_test_dataset.rgb_mask_flag:
+            if self.cfg.test_dataset.rgb_mask_flag:
                 rgb = rgb * (mask[:,:,None]>0).astype(np.uint8)
-            rgb = cv2.resize(rgb, (cfg_test_dataset.img_size, cfg_test_dataset.img_size), interpolation=cv2.INTER_LINEAR)
+            rgb = cv2.resize(rgb, (self.cfg.test_dataset.img_size, self.cfg.test_dataset.img_size), interpolation=cv2.INTER_LINEAR)
             rgb = rgb_transform(np.array(rgb))
-            rgb_choose = get_resize_rgb_choose(choose, [y1, y2, x1, x2], cfg_test_dataset.img_size)
+            rgb_choose = get_resize_rgb_choose(choose, [y1, y2, x1, x2], self.cfg.test_dataset.img_size)
             all_rgb.append(torch.FloatTensor(rgb))
             all_cloud.append(torch.FloatTensor(cloud))
             all_rgb_choose.append(torch.IntTensor(rgb_choose).long())
@@ -502,7 +485,7 @@ class ObjectTracker:
         ret_dict['score'] = torch.FloatTensor(all_score).cuda()
 
         ninstance = ret_dict['pts'].size(0)
-        ret_dict['model'] = torch.FloatTensor(model_points).unsqueeze(0).repeat(ninstance, 1, 1).cuda()
+        ret_dict['model'] = torch.FloatTensor(self.model_points_pem).unsqueeze(0).repeat(ninstance, 1, 1).cuda()
         ret_dict['K'] = torch.FloatTensor(K).unsqueeze(0).repeat(ninstance, 1, 1).cuda()
 
         # Prepare input data
@@ -533,7 +516,7 @@ class ObjectTracker:
         print("=> visualizating ...")
         valid_masks = pose_scores == pose_scores.max()
         K = input_data['K'].detach().cpu().numpy()[valid_masks]
-        vis_img = self.visualize_pose_estimation(whole_image, pred_rot[valid_masks], pred_trans[valid_masks], model_points*1000, K)
+        vis_img = self.visualize_pose_estimation(whole_image, pred_rot[valid_masks], pred_trans[valid_masks], self.model_points_pem*1000, K)
 
         return vis_img, detections
 
@@ -588,7 +571,7 @@ def main():
             # Display side-by-side
             vis_ism_np = np.array(vis_img_ism)   
             vis_pem_np = np.array(vis_img_pem)   
-            if vis_ism_np.shape[0] != vis_pem_np.shape[0]:          # Make sure heights match
+            if vis_ism_np.shape[0] != vis_pem_np.shape[0]:          
                 h = min(vis_ism_np.shape[0], vis_pem_np.shape[0])
                 vis_ism_np = vis_ism_np[:h]
                 vis_pem_np = vis_pem_np[:h]

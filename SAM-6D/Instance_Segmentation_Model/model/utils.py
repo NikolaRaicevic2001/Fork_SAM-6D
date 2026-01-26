@@ -150,9 +150,7 @@ class Detections:
             a = getattr(self, key)
             setattr(self, key, torch.from_numpy(getattr(self, key)))
 
-    def save_to_file(
-        self, scene_id, frame_id, runtime, file_path, dataset_name, return_results=False
-    ):
+    def save_to_file(self, scene_id, frame_id, runtime, file_path, dataset_name, return_results=False):
         """
         scene_id, image_id, category_id, bbox, time
         """
@@ -171,6 +169,42 @@ class Detections:
         save_npz(file_path, results)
         if return_results:
             return results
+    
+    def convert_to_json(self, scene_id, image_id, runtime, dataset_name="Custom"):
+        """ Convert detections to list of dicts for json """
+        boxes = self.boxes
+        if torch.is_tensor(boxes):
+            boxes = boxes.detach().cpu().numpy()
+        boxes_xywh = xyxy_to_xywh(boxes)
+
+        obj_ids = self.object_ids
+        if torch.is_tensor(obj_ids):
+            obj_ids = obj_ids.detach().cpu().numpy()
+
+        scores = self.scores
+        if torch.is_tensor(scores):
+            scores = scores.detach().cpu().numpy()
+
+        results = []
+        for idx_det in range(len(boxes_xywh)):
+            obj_id = int(obj_ids[idx_det])
+            cat_id = (obj_id + 1) if dataset_name != "lmo" else int(lmo_object_ids[obj_id])
+
+            mask = self.masks[idx_det]
+            if torch.is_tensor(mask):
+                mask = mask.detach().cpu().numpy()
+
+            results.append({
+                "scene_id": int(scene_id),
+                "image_id": int(image_id),
+                "category_id": int(cat_id),
+                "bbox": boxes_xywh[idx_det].tolist(),
+                "score": float(scores[idx_det]),
+                "time": float(runtime),
+                "segmentation": mask_to_rle(force_binary_mask(mask)),
+            })
+
+        return results
 
     def load_from_file(self, file_path):
         data = np.load(file_path)
@@ -214,3 +248,5 @@ def convert_npz_to_json(idx, list_npz_paths):
         }
         results.append(result)
     return results
+
+
