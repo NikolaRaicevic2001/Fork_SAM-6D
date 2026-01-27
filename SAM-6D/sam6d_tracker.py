@@ -2,9 +2,11 @@
 import os
 import cv2
 import sys
+import time
 import json
 import glob
 import torch
+import socket
 import random
 import gorilla
 import trimesh
@@ -363,7 +365,6 @@ class ObjectTracker:
 
     def run_segmentation_inference(self, color_bgr: np.ndarray, depth_bop: np.ndarray):
         """Run segmentation inference on a single RGB-D frame and always return a PIL image like visualize()."""
-        print(f"==> running segmentation inference ...")
         whole_image = cv2.cvtColor(color_bgr, cv2.COLOR_BGR2RGB)
         rgb_pil = Image.fromarray(whole_image) if self.visualize else None
 
@@ -462,7 +463,6 @@ class ObjectTracker:
 
     def run_pose_estimation_inference(self, color_bgr: np.ndarray = None, depth_bop: np.ndarray = None, detections_json: list = None):
         """ Run pose estimation inference on a batch input data """
-        print(f"==> running pose estimation inference ...")
         if color_bgr is None:
             raise ValueError("color_bgr is required")
         whole_image = color_bgr.astype(np.uint8)
@@ -597,6 +597,26 @@ class ObjectTracker:
             return vis_img, all_dets
         return None, all_dets
 
+
+class PoseUDPSender:
+    def __init__(self, ip="127.0.0.1", port=5005):
+        """ Initialize UDP sender """
+        self.addr = (ip, port)
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+    def send(self, t_m, q_wxyz, score=None, frame_id="camera_color_optical_frame"):
+        payload = {
+            "stamp": time.time(),  
+            "frame_id": frame_id,
+            "t_m": [float(t_m[0]), float(t_m[1]), float(t_m[2])],
+            "q_wxyz": [float(q_wxyz[0]), float(q_wxyz[1]), float(q_wxyz[2]), float(q_wxyz[3])],
+        }
+        if score is not None:
+            payload["score"] = float(score)
+
+        data = json.dumps(payload).encode("utf-8")
+        self.sock.sendto(data, self.addr)
+
 # Main
 def main():
     parser = argparse.ArgumentParser(description="Live SAM-6D inference from RealSense stream.")
@@ -616,6 +636,9 @@ def main():
     parser.add_argument("--iter", type=int, default=600000, help="epoch num. for testing")
     parser.add_argument("--exp_id", type=int, default=0, help="")
     args = parser.parse_args()
+
+    # Initialize UDP sender
+    udp = PoseUDPSender(ip="127.0.0.1", port=5005)
 
     # Initialize RealSense Camera
     realsense = RealSenseCamera(
@@ -653,7 +676,7 @@ def main():
             vis_img_ism, detections_json = tracker.run_segmentation_inference(color_bgr, depth_bop)
             vis_img_pem, all_dets = tracker.run_pose_estimation_inference(color_bgr, depth_bop, detections_json)
 
-            if all_dets and (frame_i % 5 == 0):
+            if all_dets and (frame_i % 1 == 0):
                 print(f"--- Frame {frame_i} Pose Estimation Results ---")
                 best_det = max(all_dets, key=lambda d: float(d.get("score", -1e9)))
 
@@ -667,6 +690,11 @@ def main():
                     else:
                         q_best = rotmat_to_quat_wxyz(R_best)
                         t_m = t_best / 1000.0
+
+                        if not (np.isfinite(t_m).all() and np.isfinite(q_best).all()):
+                            logging.warning("Non-finite pose values, skipping UDP send")
+                            continue
+                        udp.send(t_m, q_best, score=float(best_det.get("score", 0.0)), frame_id="camera_color_optical_frame")
                         print("[POSE] score={:.4f}  t(m)=[{:.3f}, {:.3f}, {:.3f}]".format(float(best_det.get("score", 0.0)), t_m[0], t_m[1], t_m[2]))
                         print("[POSE] q(wxyz)=[{:.5f}, {:.5f}, {:.5f}, {:.5f}]".format(q_best[0], q_best[1], q_best[2], q_best[3]))
                         print("[POSE] R=\n", R_best)
