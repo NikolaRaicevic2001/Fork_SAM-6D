@@ -47,8 +47,8 @@ sh demo.sh
 # ============================================
 # Configuration - EDIT THESE PATHS
 # ============================================
-OBJECT_DIR="myObject/tomatoSoup"    # Directory containing your data
-CAD_FILE="obj_000004.ply"           # Your CAD model filename
+OBJECT_DIR="myObject/bigRedCube"    # Directory containing your data
+CAD_FILE="bigRedCube_raw.ply"           # Your CAD model filename
 RGB_FILE="rgb.png"                  # Your RGB image filename
 DEPTH_FILE="depth.png"              # Your depth image filename
 CAMERA_FILE="camera.json"           # Your camera intrinsics filename
@@ -92,8 +92,8 @@ python camera.py --out_dir /home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D
 
 ### 5. Run Object Tracking
 ```
-OBJECT_DIR="myObject/banana"
-CAD_FILE="obj_000010.ply"
+OBJECT_DIR="myObject/bigRedCube"
+CAD_FILE="bigRedCube.ply"
 ROOT="/home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D"
 
 python sam6d_tracker.py \
