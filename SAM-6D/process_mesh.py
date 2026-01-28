@@ -25,18 +25,18 @@ bpy.context.view_layer.objects.active = obj
 if obj.type != 'MESH':
     raise RuntimeError(f"Imported object is not a mesh: {obj.type}")
 
-# -------------------------------------------------
-# Units: mm -> meters
-# -------------------------------------------------
-obj.scale = (0.001, 0.001, 0.001)
-bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+# # -------------------------------------------------
+# # Units: mm -> meters
+# # -------------------------------------------------
+# obj.scale = (0.001, 0.001, 0.001)
+# bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
 
 # -------------------------------------------------
 # Geometry processing (same as your working version)
 # -------------------------------------------------
 bpy.ops.object.mode_set(mode='EDIT')
 bpy.ops.mesh.select_all(action='SELECT')
-bpy.ops.mesh.subdivide(number_cuts=10)     # keep if this worked for you
+bpy.ops.mesh.subdivide(number_cuts=10)     
 bpy.ops.mesh.normals_make_consistent(inside=False)
 bpy.ops.object.mode_set(mode='OBJECT')
 

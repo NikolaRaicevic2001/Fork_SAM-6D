@@ -93,7 +93,7 @@ python camera.py --out_dir /home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D
 ### 5. Run Object Tracking
 ```
 OBJECT_DIR="myObject/bigRedCube"
-CAD_FILE="bigRedCube.ply"
+CAD_FILE="bigRedCube_raw.ply"
 ROOT="/home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D"
 
 python sam6d_tracker.py \
