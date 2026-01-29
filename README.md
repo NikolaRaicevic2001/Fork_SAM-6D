@@ -105,12 +105,16 @@ python sam6d_tracker.py \
 
 ### 6. Publish the Object Pose on ROS2 topic
 ```
+conda deactivate
+source /opt/ros/humble/setup.bash
 python sam6d_ros2_publisher.py 
 ```
 - Note: You have to run it in different terminal with ROS2 Humble support
 
 ### 7. Run the camera broadcaster
 ```
+conda deactivate
+source /opt/ros/humble/setup.bash
 python sam6d_ros2_camera_braodcaster.py
 ```
 - Note: you have to set the absolute path to the camera_extrinsics_{device_id}.npz file
