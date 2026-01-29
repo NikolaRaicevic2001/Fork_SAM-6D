@@ -47,9 +47,9 @@ sh demo.sh
 # ============================================
 # Configuration - EDIT THESE PATHS
 # ============================================
-OBJECT_DIR="myObject/bigRedCube"    # Directory containing your data
-CAD_FILE="bigRedCube.ply"           # Your CAD model filename
-RGB_FILE="rgb.png"                  # Your RGB image filename
+OBJECT_DIR="myObject/hto"    # Directory containing your data
+CAD_FILE="hammer_blue.ply"           # Your CAD model filename
+RGB_FILE="rgb.jpg"                  # Your RGB image filename
 DEPTH_FILE="depth.png"              # Your depth image filename
 CAMERA_FILE="camera.json"           # Your camera intrinsics filename
 
@@ -76,13 +76,8 @@ echo "Output: $OUTPUT_DIR"
 echo "========================================="
 
 # Run the pipeline
-sh demo.sh
-
-echo ""
-echo "========================================="
-echo "Pipeline Complete!"
-echo "Results saved to: $OUTPUT_DIR/sam6d_results/"
-echo "========================================="
+cd Render
+blenderproc run render_custom_templates.py --output_dir $OUTPUT_DIR --cad_path $CAD_PATH #--colorize True 
 ```
 
 ### 4. Capture Image
@@ -92,8 +87,8 @@ python camera.py --out_dir /home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D
 
 ### 5. Run Object Tracking
 ```
-OBJECT_DIR="myObject/bigRedCube"
-CAD_FILE="bigRedCube.ply"
+OBJECT_DIR="myObject/hto"
+CAD_FILE="hammer_blue.ply"
 ROOT="/home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D"
 
 python sam6d_tracker.py \
