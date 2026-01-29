@@ -47,8 +47,8 @@ sh demo.sh
 # ============================================
 # Configuration - EDIT THESE PATHS
 # ============================================
-OBJECT_DIR="myObject/hto"    # Directory containing your data
-CAD_FILE="hammer_blue.ply"           # Your CAD model filename
+OBJECT_DIR="myObject/dominoSugar"    # Directory containing your data
+CAD_FILE="dominoSugar.ply"           # Your CAD model filename
 RGB_FILE="rgb.jpg"                  # Your RGB image filename
 DEPTH_FILE="depth.png"              # Your depth image filename
 CAMERA_FILE="camera.json"           # Your camera intrinsics filename
@@ -87,8 +87,8 @@ python camera.py --out_dir /home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D
 
 ### 5. Run Object Tracking
 ```
-OBJECT_DIR="myObject/hto"
-CAD_FILE="hammer_blue.ply"
+OBJECT_DIR="myObject/dominoSugar"
+CAD_FILE="dominoSugar.ply"
 ROOT="/home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D"
 
 python sam6d_tracker.py \

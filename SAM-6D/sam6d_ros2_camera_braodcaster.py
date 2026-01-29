@@ -7,7 +7,7 @@ from geometry_msgs.msg import TransformStamped
 from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
 
 # Hyperparameters
-OFFSET = np.array([0.034, -0.040, 0.09], dtype=np.float64)        # meters
+OFFSET = np.array([0.037, 0.037, 0.111], dtype=np.float64)        # meters
 
 # Helper Functions
 def rotmat_to_quat_wxyz(R: np.ndarray) -> np.ndarray:
