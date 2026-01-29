@@ -21,18 +21,11 @@ bpy.ops.import_mesh.stl(filepath=input_path)
 
 obj = bpy.context.selected_objects[0]
 bpy.context.view_layer.objects.active = obj
-
 if obj.type != 'MESH':
     raise RuntimeError(f"Imported object is not a mesh: {obj.type}")
 
-# # -------------------------------------------------
-# # Units: mm -> meters
-# # -------------------------------------------------
-# obj.scale = (0.001, 0.001, 0.001)
-# bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-
 # -------------------------------------------------
-# Geometry processing (same as your working version)
+# Geometry processing 
 # -------------------------------------------------
 bpy.ops.object.mode_set(mode='EDIT')
 bpy.ops.mesh.select_all(action='SELECT')
@@ -63,7 +56,7 @@ bpy.ops.export_mesh.ply(
     filepath=output_path,
     use_ascii=True,
     use_normals=True,
-    use_colors=True    # THIS is what makes segmentation work
+    use_colors=True    
 )
 
 print("STL -> vertex-colored PLY written to:", output_path)
