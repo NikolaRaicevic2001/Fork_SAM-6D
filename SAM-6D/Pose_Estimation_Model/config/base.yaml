@@ -14,8 +14,10 @@ lr_scheduler:
   warmup_iters: 1000
 
 model:
-  coarse_npoint: 64
-  fine_npoint: 512
+  # Coarse matching: lower = faster but less accurate (default: 128, fast: 64)
+  coarse_npoint: 128
+  # Fine matching: lower = faster but less accurate (default: 1024, fast: 512)
+  fine_npoint: 1024
   feature_extraction:
     vit_type: vit_base
     up_type: linear
@@ -38,8 +40,9 @@ model:
     sim_type: cosine
     normalize_feat: True
     loss_dis_thres: 0.15
-    nproposal1: 1500
-    nproposal2: 150
+    # Pose proposals: lower = faster (default: 3000->300, fast: 1500->150)
+    nproposal1: 3000
+    nproposal2: 300
   fine_point_matching:
     nblock: 3
     input_dim: 256
@@ -82,13 +85,15 @@ test_dataset:
   data_dir: ../Data/BOP
   template_dir: ../Data/BOP-Templates
   img_size: 224
-  n_sample_observed_point: 512
-  n_sample_model_point: 256
-  n_sample_template_point: 1000
+  # Point sampling: lower = faster (default: 1024/512/2500, fast: 512/256/1000)
+  n_sample_observed_point: 1024
+  n_sample_model_point: 512
+  n_sample_template_point: 2500
   minimum_n_point: 8
   rgb_mask_flag: True
   seg_filter_score: 0.25
-  n_template_view: 21
+  # Template views: lower = faster matching (default: 42, fast: 21)
+  n_template_view: 42
 
 
 test_dataloader:
