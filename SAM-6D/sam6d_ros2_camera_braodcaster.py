@@ -7,7 +7,7 @@ from geometry_msgs.msg import TransformStamped
 from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
 
 # Hyperparameters
-OFFSET = np.array([0.037, 0.037, 0.111], dtype=np.float64)        # meters
+OFFSET = np.array([0.0, 0.0, 0.0], dtype=np.float64)        # meters
 
 # Helper Functions
 def rotmat_to_quat_wxyz(R: np.ndarray) -> np.ndarray:
@@ -48,7 +48,8 @@ class ExtrinsicsBroadcaster(Node):
     def __init__(self):
         super().__init__("camera_extrinsics_broadcaster")
         # Parameters
-        self.declare_parameter("npz_path","/home/nikolaraicevic/Workspace/Internal/Camera_Calibration/src/Xarm6_Camera_Calibration/camera_extrinsics_036322250488.npz")
+        # self.declare_parameter("npz_path","/home/nikolaraicevic/Workspace/Internal/Camera_Calibration/src/Xarm6_Camera_Calibration/camera_extrinsics_036322250488.npz")
+        self.declare_parameter("npz_path","/home/nikolaraicevic/Workspace/External/KUDA/xarm-calibrate/real_world/calibration_result/camera_036322250488_extrinsics.npz")
         self.declare_parameter("parent_frame", "robot_base")
         self.declare_parameter("child_frame", "camera_color_optical_frame")
         self.declare_parameter("key", "cam2arm")
