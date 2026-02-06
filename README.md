@@ -116,5 +116,7 @@ python sam6d_ros2_camera_braodcaster.py
 
 Get the live transformaton
 ```
+conda deactivate
+source /opt/ros/humble/setup.bash
 ros2 run tf2_ros tf2_echo robot_base sam6d_object
 ```

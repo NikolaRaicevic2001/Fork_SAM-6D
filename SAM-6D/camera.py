@@ -30,6 +30,7 @@ class RealSenseCamera:
         width=W,
         height=H,
         fps=FPS,
+        serial_number: str = "",
         warmup=WARMUP,
         depth_scale=DEPTH_SCALE,
         intrinsics_for=INTRINSICS_FOR,
@@ -44,6 +45,7 @@ class RealSenseCamera:
         self.width = int(width)
         self.height = int(height)
         self.fps = int(fps)
+        self.serial_number = str(serial_number)
         self.warmup = int(warmup)
 
         self.depth_scale = float(depth_scale)     # BOP depth_scale
@@ -67,11 +69,11 @@ class RealSenseCamera:
 
         # Pipeline config
         self.pipeline = rs.pipeline(self.ctx)
-        self.config = rs.config()
-        self.config.enable_stream(rs.stream.depth, self.width, self.height, rs.format.z16, self.fps)
-        self.config.enable_stream(rs.stream.color, self.width, self.height, rs.format.bgr8, self.fps)
-        self.profile = self.pipeline.start(self.config)
-
+        self.rs_config = rs.config()
+        self.rs_config.enable_device(self.serial_number)
+        self.rs_config.enable_stream(rs.stream.depth, self.width, self.height, rs.format.z16, self.fps)
+        self.rs_config.enable_stream(rs.stream.color, self.width, self.height, rs.format.bgr8, self.fps)
+        self.profile = self.pipeline.start(self.rs_config)
         # RealSense depth scale: meters per raw unit
         self.depth_scale_rs_m_per_unit = float(self.profile.get_device().first_depth_sensor().get_depth_scale())
 

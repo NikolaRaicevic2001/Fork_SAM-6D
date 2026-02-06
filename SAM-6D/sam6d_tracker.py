@@ -642,9 +642,10 @@ def main():
 
     # Initialize RealSense Camera
     realsense = RealSenseCamera(
-        out_dir=args.output_dir, 
+        serial_number="036322250488",
         depth_scale=1.0, 
         intrinsics_for="color", 
+        out_dir=args.output_dir, 
         align_to_color=True)
     camera_intrinsics = realsense.get_camera_intrinsics(save_json=True, print_info=True)
     print("Camera intrinsics BOP:\n", camera_intrinsics["bop"])
