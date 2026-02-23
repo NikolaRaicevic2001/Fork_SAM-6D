@@ -47,7 +47,7 @@ color_layer = mesh.vertex_colors.active
 # Paint entire mesh solid red
 for poly in mesh.polygons:
     for loop_idx in poly.loop_indices:
-        color_layer.data[loop_idx].color = (1.0, 0.0, 0.0, 1.0)  # RGBA
+        color_layer.data[loop_idx].color = (0.0, 0.0, 1.0, 1.0)  # RGBA
 
 # -------------------------------------------------
 # Export PLY with vertex colors

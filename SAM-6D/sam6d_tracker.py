@@ -642,7 +642,7 @@ def main():
 
     # Initialize RealSense Camera
     realsense = RealSenseCamera(
-        serial_number="036322250488",
+        serial_number="839112061696",
         depth_scale=1.0, 
         intrinsics_for="color", 
         out_dir=args.output_dir, 

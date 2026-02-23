@@ -43,12 +43,27 @@ sh demo.sh
 ```
 
 ### 3. Run new object
+#### Process Mesh
+```
+BLENDER="/home/nikolaraicevic/blender/blender-3.3.1-linux-x64/blender"
+
+OBJECT_DIR="myObject/T_block"
+STL_FILE="T_block.stl"
+PLY_FILE="T_block.ply"
+
+INPUT="$(pwd)/Data/${OBJECT_DIR}/${STL_FILE}"
+OUTPUT="$(pwd)/Data/${OBJECT_DIR}/${PLY_FILE}"
+
+"$BLENDER" -b -P stl_to_ply.py -- "$INPUT" "$OUTPUT"
+```
+
+#### Process Templates
 ```
 # ============================================
 # Configuration - EDIT THESE PATHS
 # ============================================
-OBJECT_DIR="myObject/dominoSugar"    # Directory containing your data
-CAD_FILE="dominoSugar.ply"           # Your CAD model filename
+OBJECT_DIR="myObject/T_block"       # Directory containing your data
+CAD_FILE="T_block.ply"              # Your CAD model filename
 RGB_FILE="rgb.jpg"                  # Your RGB image filename
 DEPTH_FILE="depth.png"              # Your depth image filename
 CAMERA_FILE="camera.json"           # Your camera intrinsics filename
@@ -82,19 +97,35 @@ blenderproc run render_custom_templates.py --output_dir $OUTPUT_DIR --cad_path $
 
 ### 4. Capture Image
 ```
-python camera.py --out_dir /home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D/Data/myObject/tomatoSoup/outputs 
+OBJECT_DIR="myObject/T_block"                 # Directory containing your data
+OUTPUT_DIR=$(pwd)/Data/${OBJECT_DIR}/outputs
+
+python camera.py --out_dir $OUTPUT_DIR
 ```
 
 ### 5. Run Object Tracking
 ```
-OBJECT_DIR="myObject/dominoSugar"
-CAD_FILE="dominoSugar.ply"
+OBJECT_DIR="myObject/T_block"
+CAD_FILE="T_block.ply"
 ROOT="/home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D"
 
 python sam6d_tracker.py \
   --segmentor_model fastsam \
   --output_dir "$ROOT/Data/$OBJECT_DIR/outputs" \
   --cad_path "$ROOT/Data/$OBJECT_DIR/$CAD_FILE" \
+  --visualize
+```
+
+### 5.2 Run Object Tracking Multiple
+```
+ROOT="/home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D"
+
+python sam6d_tracker_multiple.py \
+  --segmentor_model fastsam \
+  --output_dir "$ROOT/Data/myObject/" \
+  --obj_name dominoSugar --cad_path "$ROOT/Data/myObject/dominoSugar/dominoSugar.ply" \
+  --obj_name tomatoSoup  --cad_path "$ROOT/Data/myObject/tomatoSoup/tomatoSoup.ply" \
+  --realsense_serial 839112061696 \
   --visualize
 ```
 
