@@ -62,8 +62,8 @@ OUTPUT="$(pwd)/Data/${OBJECT_DIR}/${PLY_FILE}"
 # ============================================
 # Configuration - EDIT THESE PATHS
 # ============================================
-OBJECT_DIR="myObject/pear"       # Directory containing your data
-CAD_FILE="pear.ply"              # Your CAD model filename
+OBJECT_DIR="myObject/peach"       # Directory containing your data
+CAD_FILE="peach.ply"              # Your CAD model filename
 RGB_FILE="rgb.jpg"                  # Your RGB image filename
 DEPTH_FILE="depth.png"              # Your depth image filename
 CAMERA_FILE="camera.json"           # Your camera intrinsics filename
@@ -105,8 +105,8 @@ python camera.py --out_dir $OUTPUT_DIR
 
 ### 5. Run Object Tracking
 ```
-OBJECT_DIR="myObject/pear"
-CAD_FILE="pear.ply"
+OBJECT_DIR="myObject/peach"
+CAD_FILE="peach.ply"
 ROOT="/home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D"
 
 python sam6d_tracker.py \

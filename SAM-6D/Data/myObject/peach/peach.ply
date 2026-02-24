@@ -1,5 +1,6 @@
 ply
 format ascii 1.0
+comment TextureFile texture_map.png
 element vertex 32770
 property float x
 property float y
