@@ -1,0 +1,42 @@
+<?xml version="1.0"?>
+<robot name="number_0">
+
+  <link name="0_link">
+
+    <!-- Inertial -->
+    <inertial>
+      <!-- COM at origin after recentering -->
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="1.0"/>
+      <inertia
+        ixx="8.42e-4"
+        iyy="4.17e-4"
+        izz="1.16e-3"
+        ixy="0.0"
+        ixz="0.0"
+        iyz="0.0"/>
+    </inertial>
+
+    <!-- Visual -->
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="alphabets/0/0_centered.ply"
+              scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="number_material">
+        <color rgba="1 0.647 0 1"/>
+      </material>
+    </visual>
+
+    <!-- Collision -->
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="alphabets/0/0_centered.ply"
+              scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+
+  </link>
+</robot>
