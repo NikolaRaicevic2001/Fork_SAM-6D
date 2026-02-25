@@ -21,8 +21,19 @@ bpy.ops.import_mesh.stl(filepath=input_path)
 
 obj = bpy.context.selected_objects[0]
 bpy.context.view_layer.objects.active = obj
+
+bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='BOUNDS')
+obj.location = (0.0, 0.0, 0.0)
+bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)
+
+scale = 1.0
+obj.scale = (scale, scale, scale)
+bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+
 if obj.type != 'MESH':
     raise RuntimeError(f"Imported object is not a mesh: {obj.type}")
+
+print("Dimensions (Blender units):", obj.dimensions)
 
 # -------------------------------------------------
 # Geometry processing 
@@ -47,7 +58,9 @@ color_layer = mesh.vertex_colors.active
 # Paint entire mesh solid red
 for poly in mesh.polygons:
     for loop_idx in poly.loop_indices:
-        color_layer.data[loop_idx].color = (0.0, 0.0, 1.0, 1.0)  # RGBA
+        # color_layer.data[loop_idx].color = (1.0, 0.502, 0.0, 1.0)   # RGBA: Organge
+        # color_layer.data[loop_idx].color = (0.0, 0.0, 1.0, 1.0)     # RGBA: Blue
+        color_layer.data[loop_idx].color = (0.0, 0.7, 0.298, 1.0)     # RGBA: Green
 
 # -------------------------------------------------
 # Export PLY with vertex colors

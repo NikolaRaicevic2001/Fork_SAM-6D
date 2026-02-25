@@ -47,9 +47,9 @@ sh demo.sh
 ```
 BLENDER="/home/nikolaraicevic/blender/blender-3.3.1-linux-x64/blender"
 
-OBJECT_DIR="myObject/T_block"
-STL_FILE="T_block.stl"
-PLY_FILE="T_block.ply"
+OBJECT_DIR="myObject/2_block"
+STL_FILE="2_block.stl"
+PLY_FILE="2_block.ply"
 
 INPUT="$(pwd)/Data/${OBJECT_DIR}/${STL_FILE}"
 OUTPUT="$(pwd)/Data/${OBJECT_DIR}/${PLY_FILE}"
@@ -62,8 +62,8 @@ OUTPUT="$(pwd)/Data/${OBJECT_DIR}/${PLY_FILE}"
 # ============================================
 # Configuration - EDIT THESE PATHS
 # ============================================
-OBJECT_DIR="myObject/peach"       # Directory containing your data
-CAD_FILE="peach.ply"              # Your CAD model filename
+OBJECT_DIR="myObject/2_block"       # Directory containing your data
+CAD_FILE="2_block.ply"              # Your CAD model filename
 RGB_FILE="rgb.jpg"                  # Your RGB image filename
 DEPTH_FILE="depth.png"              # Your depth image filename
 CAMERA_FILE="camera.json"           # Your camera intrinsics filename
@@ -105,8 +105,8 @@ python camera.py --out_dir $OUTPUT_DIR
 
 ### 5. Run Object Tracking
 ```
-OBJECT_DIR="myObject/peach"
-CAD_FILE="peach.ply"
+OBJECT_DIR="myObject/2_block"
+CAD_FILE="2_block.ply"
 ROOT="/home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D"
 
 python sam6d_tracker.py \
