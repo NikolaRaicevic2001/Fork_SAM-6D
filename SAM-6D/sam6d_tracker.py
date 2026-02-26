@@ -668,7 +668,7 @@ def main():
 
     if args.visualize:
         window_name = "SAM-6D Live (q to quit)"
-        cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
+        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
 
     try:
         frame_i = 0

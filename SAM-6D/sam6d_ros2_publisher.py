@@ -59,6 +59,7 @@ class Sam6dPosePublisher(Node):
             self.get_logger().warn("Missing/invalid t_m or q_wxyz")
             return
 
+        print("publishing")
         # ROS time: stamp now 
         stamp = self.get_clock().now().to_msg()
 

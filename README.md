@@ -89,7 +89,7 @@ python camera.py --out_dir /home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D
 ```
 OBJECT_DIR="myObject/dominoSugar"
 CAD_FILE="dominoSugar.ply"
-ROOT="/home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D"
+ROOT="${HOME}/ycb_ws/Fork_SAM-6D/SAM-6D"
 
 python sam6d_tracker.py \
   --segmentor_model fastsam \

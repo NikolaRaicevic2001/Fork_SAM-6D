@@ -9,13 +9,14 @@ dependencies:
   - pip=24.0
   - python=3.9.6
   - pip:
+    - numpy<2.0.0
     - torch==2.0.0
     - torchvision==0.15.1
     - fvcore
     - xformers==0.0.18
     - torchmetrics==0.10.3
     - blenderproc==2.6.1
-    - opencv-python 
+    - opencv-python==4.8.1.78 
     # ISM 
     - omegaconf
     - ruamel.yaml
