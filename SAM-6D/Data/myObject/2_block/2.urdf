@@ -1,0 +1,41 @@
+<?xml version="1.0"?>
+<robot name="number_2">
+
+  <link name="2_link">
+
+    <!-- Inertial -->
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="1.0"/>
+      <inertia
+        ixx="1.06e-3"
+        iyy="3.48e-4"
+        izz="1.30e-3"
+        ixy="0.0"
+        ixz="0.0"
+        iyz="0.0"/>
+    </inertial>
+
+    <!-- Visual -->
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="alphabets/2/2_centered.ply"
+              scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="number_material">
+        <color rgba="1 0.647 0 1"/>
+      </material>
+    </visual>
+
+    <!-- Collision -->
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="alphabets/2/2_centered.ply"
+              scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+
+  </link>
+</robot>

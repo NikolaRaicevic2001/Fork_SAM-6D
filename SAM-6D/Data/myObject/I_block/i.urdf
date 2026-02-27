@@ -1,0 +1,42 @@
+<?xml version="1.0"?>
+<robot name="letter_i">
+
+  <link name="i_link">
+
+    <!-- Inertial properties (COM at origin) -->
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="1.0"/>
+
+      <inertia
+        ixx="8.85e-4"
+        iyy="1.01e-4"
+        izz="8.82e-4"
+        ixy="0.0"
+        ixz="0.0"
+        iyz="0.0"/>
+    </inertial>
+
+    <!-- Visual -->
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="alphabets/I/i_centered.ply"
+              scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="letter_material">
+        <color rgba="1 0 0 1"/>
+      </material>
+    </visual>
+
+    <!-- Collision -->
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="alphabets/I/i_centered.ply"
+              scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+
+  </link>
+</robot>
