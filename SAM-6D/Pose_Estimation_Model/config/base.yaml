@@ -15,7 +15,7 @@ lr_scheduler:
 
 model:
   # Coarse matching: lower = faster but less accurate (default: 128, fast: 64)
-  coarse_npoint: 128
+  coarse_npoint: 64
   # Fine matching: lower = faster but less accurate (default: 1024, fast: 512)
   fine_npoint: 1024
   feature_extraction:

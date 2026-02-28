@@ -9,6 +9,9 @@ from pointnet2_utils import (
     furthest_point_sample,
 )
 
+import logging
+logger = logging.getLogger("utils")
+
 
 class LayerNorm2d(nn.Module):
     def __init__(self, num_channels: int, eps: float = 1e-6) -> None:
@@ -80,6 +83,20 @@ def get_chosen_pixel_feats(img, choose):
     x = torch.gather(img, 2, choose).contiguous()
     return x.transpose(1,2).contiguous()
 
+def pairwise_distance_attempt(
+    x: torch.Tensor, y: torch.Tensor, normalized: bool = False, channel_first: bool = False
+):
+
+    if channel_first:
+    # in this case, x: (*, C, N), y: (*, C, M), and want d: (*, N, M)
+        diff = x.unsqueeze(-1) - y.unsqueeze(-2) # now (*, C, N, M)
+        dist = torch.sum(diff.square(), dim=-3)
+    else:
+    # in this case, x: (*, N, C), y: (*, M, C), and want d: (*, N, M)
+        diff = x.unsqueeze(-2) - y.unsqueeze(-3) # now (*, N, M, C)
+        dist = torch.sum(diff.square(), dim=-1)
+
+    return dist
 
 def pairwise_distance(
     x: torch.Tensor, y: torch.Tensor, normalized: bool = False, channel_first: bool = False
@@ -198,8 +215,14 @@ def compute_coarse_Rt(
     N2 = pts2.size(1)
     device = pts1.device
 
+
     if model_pts is None:
         model_pts = pts2
+
+    logger.info(pts1.shape)
+    logger.info(pts2.shape)
+    logger.info(model_pts.shape)
+
     expand_model_pts = model_pts.unsqueeze(1).repeat(1,n_proposal2,1,1).reshape(B*n_proposal2, -1, 3)
 
     # compute soft assignment matrix

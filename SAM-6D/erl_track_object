@@ -18,14 +18,19 @@ keti_planning:latest python3 sam6d_ros2_camera_braodcaster.py \
 
 #OBJECT_DIR="myObject/dominoSugar"
 #CAD_FILE="dominoSugar.ply"
-#ROOT="${HOME}/ycb_ws/Fork_SAM-6D/SAM-6D"
 
-OBJECT_DIR="myObject/tomatoSoup"
-CAD_FILE="obj_000004.ply"
+#OBJECT_DIR="myObject/tomatoSoup"
+#CAD_FILE="tomatoSoup.ply"
 ROOT="${HOME}/ycb_ws/Fork_SAM-6D/SAM-6D"
 
+OBJECT_DIR="myObject/S_block"
+CAD_FILE="S_block.ply"
+
+#OBJECT_DIR="myObject/2_block"
+#CAD_FILE="2_block.ply"
+#
 conda run -n sam6d python sam6d_tracker.py \
-  --segmentor_model fastsam \
+   --segmentor_model fastsam \
   --output_dir "$ROOT/Data/$OBJECT_DIR/outputs" \
   --cad_path "$ROOT/Data/$OBJECT_DIR/$CAD_FILE" \
   --visualize
