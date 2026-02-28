@@ -15,9 +15,9 @@ lr_scheduler:
 
 model:
   # Coarse matching: lower = faster but less accurate (default: 128, fast: 64)
-  coarse_npoint: 128
+  coarse_npoint: 64
   # Fine matching: lower = faster but less accurate (default: 1024, fast: 512)
-  fine_npoint: 1024
+  fine_npoint: 512
   feature_extraction:
     vit_type: vit_base
     up_type: linear
@@ -41,8 +41,8 @@ model:
     normalize_feat: True
     loss_dis_thres: 0.15
     # Pose proposals: lower = faster (default: 3000->300, fast: 1500->150)
-    nproposal1: 3000
-    nproposal2: 300
+    nproposal1: 1500
+    nproposal2: 150
   fine_point_matching:
     nblock: 3
     input_dim: 256
@@ -86,9 +86,9 @@ test_dataset:
   template_dir: ../Data/BOP-Templates
   img_size: 224
   # Point sampling: lower = faster (default: 1024/512/2500, fast: 512/256/1000)
-  n_sample_observed_point: 1024
-  n_sample_model_point: 512
-  n_sample_template_point: 2500
+  n_sample_observed_point: 512
+  n_sample_model_point: 256
+  n_sample_template_point: 1000
   minimum_n_point: 8
   rgb_mask_flag: True
   seg_filter_score: 0.25

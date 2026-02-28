@@ -40,7 +40,7 @@ print("Dimensions (Blender units):", obj.dimensions)
 # -------------------------------------------------
 bpy.ops.object.mode_set(mode='EDIT')
 bpy.ops.mesh.select_all(action='SELECT')
-bpy.ops.mesh.subdivide(number_cuts=10)     
+bpy.ops.mesh.subdivide(number_cuts=3)     
 bpy.ops.mesh.normals_make_consistent(inside=False)
 bpy.ops.object.mode_set(mode='OBJECT')
 
@@ -58,9 +58,10 @@ color_layer = mesh.vertex_colors.active
 # Paint entire mesh solid red
 for poly in mesh.polygons:
     for loop_idx in poly.loop_indices:
-        # color_layer.data[loop_idx].color = (1.0, 0.502, 0.0, 1.0)   # RGBA: Organge
-        # color_layer.data[loop_idx].color = (0.0, 0.0, 1.0, 1.0)     # RGBA: Blue
-        color_layer.data[loop_idx].color = (0.0, 0.7, 0.298, 1.0)     # RGBA: Green
+        color_layer.data[loop_idx].color = (1.0, 0.502, 0.0, 1.0)         # RGBA: Organge
+        # color_layer.data[loop_idx].color = (0.0, 0.0, 1.0, 1.0)           # RGBA: Blue
+        # color_layer.data[loop_idx].color = (0.118, 0.165, 0.337, 1.0)     # RGBA: Dark Blue
+        # color_layer.data[loop_idx].color = (0.0, 0.7, 0.298, 1.0)         # RGBA: Green
 
 # -------------------------------------------------
 # Export PLY with vertex colors
