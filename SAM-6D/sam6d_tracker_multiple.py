@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 """
-sam6d_tracker_multiple.py
-
 Run SAM-6D (ISM + PEM) for MULTIPLE objects in one RealSense stream.
 
 Example:
@@ -11,18 +9,6 @@ python sam6d_tracker_multiple.py \
   --obj_name dominoSugar --cad_path "$ROOT/Data/myObject/dominoSugar/dominoSugar.ply" \
   --obj_name tomatoSoup  --cad_path "$ROOT/Data/myObject/tomatoSoup/tomatoSoup.ply" \
   --visualize
-
-Notes / expectations:
-- Each object needs its own templates dir containing:
-    rgb_*.png, mask_*.png, xyz_*.npy
-  Default: <output_dir>/<obj_name>/templates
-  You can override per-object templates dir with:
-    --templates_dir <path> (repeatable, aligned with obj_name/cad_path)
-
-- This script shares the heavy ISM models (segmentor + descriptor) across objects.
-- PEM network is shared; each object has its own extracted template features + model points.
-
-- UDP output includes object name in payload ("obj_name").
 """
 
 import os
@@ -77,9 +63,7 @@ logging.basicConfig(level=logging.WARNING)
 
 rgb_transform = transforms.Compose([
     transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                         std=[0.229, 0.224, 0.225])
-])
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
 
 # =========================
 # Helper Functions
@@ -251,10 +235,6 @@ class MultiObjectTracker:
         assign_thresh: float = 0.20,
         topk_per_object: int = 3,
     ):
-        """
-        objects: list of dicts:
-          { "name": str, "cad_path": str, "templates_dir": str }
-        """
         self.output_dir = output_dir
         self.objects_cfg = objects
         self.cam_K = cam_K
@@ -489,17 +469,6 @@ class MultiObjectTracker:
             best_det = max(dets, key=lambda d: float(d.get("score", -1e9)))
             best_dets.append(best_det)
         return best_dets
-    
-    def get_best_pose_detections(self, poses_by_obj: dict):
-        best_dets = []
-        for obj in self.objects:
-            name = obj["name"]
-            dets = poses_by_obj.get(name, [])
-            if not dets:
-                continue
-            best_det = max(dets, key=lambda d: float(d.get("score", -1e9)))
-            best_dets.append((obj, best_det))
-        return best_dets
 
     # =========================
     # Visualization (ISM)
@@ -512,10 +481,7 @@ class MultiObjectTracker:
         right_np = cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
 
         if message is not None:
-            cv2.putText(
-                right_np, message, (20, 40),
-                cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA
-            )
+            cv2.putText( right_np, message, (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
         elif detections:
             colors = distinctipy.get_colors(max(1, len(self.objects)))
             alpha = 0.33
@@ -542,15 +508,9 @@ class MultiObjectTracker:
                     cx = int(np.mean(xs))
                     cy = int(np.mean(ys))
                     label = det.get("obj_name", f"id:{obj_id+1}")
-                    cv2.putText(
-                        right_np, label, (cx, cy),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA
-                    )
+                    cv2.putText( right_np, label, (cx, cy), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
         else:
-            cv2.putText(
-                right_np, "No assigned detections", (20, 40),
-                cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA
-            )
+            cv2.putText( right_np, "No assigned detections", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
 
         right = Image.fromarray(np.uint8(right_np))
         concat = Image.new("RGB", (left.width + right.width, left.height))
@@ -590,23 +550,13 @@ class MultiObjectTracker:
             obj_idx = self.objects.index(obj)
             color = tuple(int(255 * c) for c in colors[obj_idx])
 
-            overlay = draw_detections(
-                overlay,
-                R[None, ...],
-                t[None, ...],
-                obj["model_points_pem"] * 1000.0,
-                K[None, ...],
-                color=color,
-            )
+            overlay = draw_detections( overlay, R[None, ...], t[None, ...], obj["model_points_pem"] * 1000.0, K[None, ...], color=color)
             drew_any = True
 
         if not drew_any:
             gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
             right_np = cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
-            cv2.putText(
-                right_np, "PEM: no poses", (20, 40),
-                cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA
-            )
+            cv2.putText( right_np, "PEM: no poses", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
             right = Image.fromarray(right_np.astype(np.uint8))
         else:
             right = Image.fromarray(overlay.astype(np.uint8))
@@ -617,11 +567,7 @@ class MultiObjectTracker:
         return concat
 
     # =========================
-    # Multi-object ISM inference:
-    # - generate masks once
-    # - compute scores for each object
-    # - assign proposals to best object
-    # returns: (vis_ism, dets_by_obj_name)
+    # Multi-object ISM inference
     # =========================
     def run_segmentation_multi(self, color_bgr: np.ndarray, depth_bop: np.ndarray):
         whole_image = cv2.cvtColor(color_bgr, cv2.COLOR_BGR2RGB)
@@ -660,15 +606,10 @@ class MultiObjectTracker:
         n_obj = len(self.objects)
         score_mat = np.full((n_obj, n_prop), -1e9, dtype=np.float32)
 
-        # compute total scores per object (re-using existing ISM scoring functions)
+        # compute total scores per object 
         for oi, obj in enumerate(self.objects):
             # Swap in per-object ref_data
-            self.model_segmentation.ref_data = {
-                "descriptors": obj["ref_desc"],
-                "appe_descriptors": obj["ref_appe"],
-                "pointcloud": obj["ref_pc"],
-                "poses": obj["ref_poses"],
-            }
+            self.model_segmentation.ref_data = { "descriptors": obj["ref_desc"], "appe_descriptors": obj["ref_appe"], "pointcloud": obj["ref_pc"], "poses": obj["ref_poses"]}
 
             try:
                 idx_sel, pred_idx_obj, semantic_score, best_template = self.model_segmentation.compute_semantic_score(query_desc)
@@ -748,7 +689,6 @@ class MultiObjectTracker:
     
     # =========================
     # PEM per-object inference
-    # returns (vis_pem, dets_with_pose)
     # =========================
     def run_pose_estimation_for_object(self, obj, color_bgr: np.ndarray, depth_bop: np.ndarray, detections_json: list):
         whole_image = color_bgr.astype(np.uint8)
@@ -837,13 +777,7 @@ class MultiObjectTracker:
         if len(all_dets) == 0:
             return []
 
-        ret_dict = {
-            "pts": torch.stack(all_cloud).cuda(),
-            "rgb": torch.stack(all_rgb).cuda(),
-            "rgb_choose": torch.stack(all_rgb_choose).cuda(),
-            "score": torch.FloatTensor(all_score).cuda(),
-        }
-
+        ret_dict = {"pts": torch.stack(all_cloud).cuda(),"rgb": torch.stack(all_rgb).cuda(),"rgb_choose": torch.stack(all_rgb_choose).cuda(),"score": torch.FloatTensor(all_score).cuda()}
         ninstance = ret_dict["pts"].size(0)
         ret_dict["model"] = torch.FloatTensor(obj["model_points_pem"]).unsqueeze(0).repeat(ninstance, 1, 1).cuda()
         ret_dict["K"] = torch.FloatTensor(K).unsqueeze(0).repeat(ninstance, 1, 1).cuda()
@@ -886,6 +820,8 @@ def main():
     # Segmentor
     parser.add_argument("--segmentor_model", default="sam", choices=["sam", "fastsam"])
     parser.add_argument("--stability_score_thresh", default=0.97, type=float)
+    parser.add_argument("--assign_thresh", type=float, default=0.20, help="Min ISM score to assign a proposal to an object.")
+    parser.add_argument("--topk_per_object", type=int, default=3, help="Keep top-K ISM detections per object for PEM.")
 
     # PEM
     parser.add_argument("--det_score_thresh", default=0.2, type=float)
@@ -894,16 +830,9 @@ def main():
     parser.add_argument("--iter", type=int, default=600000)
     parser.add_argument("--exp_id", type=int, default=0)
 
-    # Multi-object assignment + PEM speed
-    parser.add_argument("--assign_thresh", type=float, default=0.20, help="Min ISM score to assign a proposal to an object.")
-    parser.add_argument("--topk_per_object", type=int, default=3, help="Keep top-K ISM detections per object for PEM.")
-
     # UDP
     parser.add_argument("--udp_ip", type=str, default="127.0.0.1")
     parser.add_argument("--udp_port", type=int, default=5005)
-
-    # RealSense
-    parser.add_argument("--realsense_serial", type=str, default="036322250488")
 
     args = parser.parse_args()
 
@@ -926,7 +855,7 @@ def main():
 
     # RealSense
     realsense = RealSenseCamera(
-        serial_number=args.realsense_serial,
+        serial_number="839112061696",
         depth_scale=1.0,
         intrinsics_for="color",
         out_dir=args.output_dir,
@@ -965,6 +894,7 @@ def main():
             dets_by_obj = tracker.run_segmentation_multi(color_bgr, depth_bop)
             poses_by_obj = {}
 
+            print(f"<======== Frame {frame_i} ========>")
             for obj in tracker.objects:
                 name = obj["name"]
                 dets_pose = tracker.run_pose_estimation_for_object(
@@ -994,19 +924,13 @@ def main():
                 rgb_pil = Image.fromarray(cv2.cvtColor(color_bgr, cv2.COLOR_BGR2RGB))
 
                 best_seg_dets = tracker.get_best_segmentation_detections(dets_by_obj)
-                vis_img_ism = tracker.visualize_ism(
-                    rgb_pil,
-                    best_seg_dets,
-                    None if best_seg_dets else "No assigned detections"
-                )
-
+                vis_img_ism = tracker.visualize_ism(rgb_pil,best_seg_dets,None if best_seg_dets else "No assigned detections")
                 vis_img_pem = tracker.visualize_pem_best_per_object(color_bgr, poses_by_obj)
 
                 vis_ism_np = np.array(vis_img_ism)
                 vis_pem_np = np.array(vis_img_pem)
 
                 target_w = max(vis_ism_np.shape[1], vis_pem_np.shape[1])
-
                 if vis_ism_np.shape[1] != target_w:
                     scale = target_w / float(vis_ism_np.shape[1])
                     vis_ism_np = cv2.resize(vis_ism_np, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
@@ -1033,9 +957,7 @@ def main():
                     with open(os.path.join(out_dir, f"detections_pem_by_obj_frame{frame_i}.json"), "w") as f:
                         json.dump(poses_by_obj, f, indent=2)
 
-                    Image.fromarray(vis_stack.astype(np.uint8)).save(
-                        os.path.join(out_dir, f"vis_multi_frame{frame_i}.png")
-                    )
+                    Image.fromarray(vis_stack.astype(np.uint8)).save(os.path.join(out_dir, f"vis_multi_frame{frame_i}.png"))
                     print(f"Saved results to {out_dir}")
                     
     finally:
