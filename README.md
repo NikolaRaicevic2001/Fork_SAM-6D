@@ -113,7 +113,7 @@ ROOT="/home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D"
 python sam6d_tracker_multiple.py \
   --segmentor_model fastsam \
   --output_dir "$ROOT/Data/myObject/" \
-  --obj_name dominoSugar --cad_path "$ROOT/Data/myObject/dominoSugar/dominoSugar.ply" \
+  --obj_name sugarBox --cad_path "$ROOT/Data/myObject/sugarBox/sugarBox.ply" \
   --obj_name tomatoSoup  --cad_path "$ROOT/Data/myObject/tomatoSoup/tomatoSoup.ply" \
   --realsense_serial 839112061696 \
   --visualize

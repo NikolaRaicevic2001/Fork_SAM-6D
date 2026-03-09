@@ -94,7 +94,7 @@ rgb_transform = transforms.Compose([
 ])
 
 # =========================
-# Helper: rotmat -> quat (wxyz)
+# Helper Functions
 # =========================
 def rotmat_to_quat_wxyz(R: np.ndarray) -> np.ndarray:
     q = np.empty(4, dtype=np.float64)
@@ -215,7 +215,6 @@ def decode_coco_segmentation(seg):
         return m.astype(bool)
 
     raise TypeError(f"Unsupported counts type: {type(counts)}")
-
 
 # =========================
 # UDP sender (includes obj_name)
@@ -487,6 +486,18 @@ class MultiObjectTracker:
             "all_tem_pts": all_tem_pts,
             "all_tem_feat": all_tem_feat,
         }
+    
+    def get_best_segmentation_detections(self, dets_by_obj: dict):
+        """ Return one best segmentation detection per object """
+        best_dets = []
+        for obj in self.objects:
+            name = obj["name"]
+            dets = dets_by_obj.get(name, [])
+            if not dets:
+                continue
+            best_det = max(dets, key=lambda d: float(d.get("score", -1e9)))
+            best_dets.append(best_det)
+        return best_dets
 
     # =========================
     # Visualization (ISM)
@@ -555,6 +566,58 @@ class MultiObjectTracker:
             else:
                 overlay = draw_detections(rgb, pred_rot, pred_trans, model_points, K, color=(255, 0, 0))
                 right = Image.fromarray(overlay.astype(np.uint8))
+
+        concat = Image.new("RGB", (left.width + right.width, left.height))
+        concat.paste(left, (0, 0))
+        concat.paste(right, (left.width, 0))
+        return concat
+
+    def visualize_pem_best_per_object(self, color_bgr: np.ndarray, poses_by_obj: dict):
+        """ Render one best pose per object on a single shared overlay """
+        rgb = cv2.cvtColor(color_bgr, cv2.COLOR_BGR2RGB)
+        left = Image.fromarray(rgb.astype(np.uint8))
+
+        overlay = rgb.copy()
+        K = np.array(self.cam_K).reshape(3, 3)
+
+        drew_any = False
+
+        for obj in self.objects:
+            name = obj["name"]
+            dets = poses_by_obj.get(name, [])
+            if not dets:
+                continue
+
+            best_det = max(dets, key=lambda d: float(d.get("score", -1e9)))
+            if "R" not in best_det or "t" not in best_det:
+                continue
+
+            R = np.array(best_det["R"], dtype=np.float32)
+            t = np.array(best_det["t"], dtype=np.float32)
+
+            if R.shape != (3, 3) or t.shape != (3,):
+                continue
+
+            overlay = draw_detections(
+                overlay,
+                R[None, ...],
+                t[None, ...],
+                obj["model_points_pem"] * 1000.0,
+                K[None, ...],
+                color=(255, 0, 0),
+            )
+            drew_any = True
+
+        if not drew_any:
+            gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+            right_np = cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
+            cv2.putText(
+                right_np, "PEM: no poses", (20, 40),
+                cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA
+            )
+            right = Image.fromarray(right_np.astype(np.uint8))
+        else:
+            right = Image.fromarray(overlay.astype(np.uint8))
 
         concat = Image.new("RGB", (left.width + right.width, left.height))
         concat.paste(left, (0, 0))
@@ -949,7 +1012,8 @@ def main():
 
     if args.visualize:
         window_name = "SAM-6D Multi-object (q=quit, s=save)"
-        cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
+        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(window_name, 1000, 800)   
 
     try:
         frame_i = 0
@@ -964,9 +1028,7 @@ def main():
 
             for obj in tracker.objects:
                 name = obj["name"]
-                vis_pem, dets_pose = tracker.run_pose_estimation_for_object(
-                    obj, color_bgr, depth_bop, dets_by_obj.get(name, [])
-                )
+                vis_pem, dets_pose = tracker.run_pose_estimation_for_object(obj, color_bgr, depth_bop, dets_by_obj.get(name, []))
                 poses_by_obj[name] = dets_pose
 
                 # UDP send best per object
@@ -989,28 +1051,33 @@ def main():
 
             # Visualization panel: ISM on top + PEM panels below
             if args.visualize:
-                if vis_img_ism is None:
-                    continue
+                rgb_pil = Image.fromarray(cv2.cvtColor(color_bgr, cv2.COLOR_BGR2RGB))
+
+                # one best segmentation per object
+                best_seg_dets = tracker.get_best_segmentation_detections(dets_by_obj)
+                if len(best_seg_dets) > 0:
+                    vis_img_ism = tracker.visualize_ism(rgb_pil, best_seg_dets, message=None)
+                else:
+                    vis_img_ism = tracker.visualize_ism(rgb_pil, None, message="No assigned detections")
+
+                # one best pose per object
+                vis_img_pem = tracker.visualize_pem_best_per_object(color_bgr, poses_by_obj)
 
                 vis_ism_np = np.array(vis_img_ism)
+                vis_pem_np = np.array(vis_img_pem)
 
-                if len(pem_vis_panels) == 0:
-                    vis_stack = vis_ism_np
-                else:
-                    # Stack PEM panels vertically under ISM
-                    # Ensure same width by resizing
-                    target_w = vis_ism_np.shape[1]
-                    resized = []
-                    for p in pem_vis_panels:
-                        if p.shape[1] != target_w:
-                            scale = target_w / float(p.shape[1])
-                            p = cv2.resize(p, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
-                        resized.append(p)
-                    pem_block = np.vstack(resized)
-                    # Ensure same width
-                    if pem_block.shape[1] != target_w:
-                        pem_block = cv2.resize(pem_block, (target_w, pem_block.shape[0]), interpolation=cv2.INTER_AREA)
-                    vis_stack = np.vstack([vis_ism_np, pem_block])
+                # make widths match
+                target_w = max(vis_ism_np.shape[1], vis_pem_np.shape[1])
+
+                if vis_ism_np.shape[1] != target_w:
+                    scale = target_w / float(vis_ism_np.shape[1])
+                    vis_ism_np = cv2.resize(vis_ism_np, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+
+                if vis_pem_np.shape[1] != target_w:
+                    scale = target_w / float(vis_pem_np.shape[1])
+                    vis_pem_np = cv2.resize(vis_pem_np, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+
+                vis_stack = np.vstack([vis_ism_np, vis_pem_np])
 
                 vis_bgr = cv2.cvtColor(vis_stack, cv2.COLOR_RGB2BGR)
                 cv2.imshow(window_name, vis_bgr)
@@ -1022,18 +1089,17 @@ def main():
                     out_dir = os.path.join(args.output_dir, "sam6d_results_multi")
                     os.makedirs(out_dir, exist_ok=True)
 
-                    # Save ISM detections per object
                     with open(os.path.join(out_dir, f"detections_ism_by_obj_frame{frame_i}.json"), "w") as f:
                         json.dump(dets_by_obj, f, indent=2)
 
-                    # Save PEM detections per object
                     with open(os.path.join(out_dir, f"detections_pem_by_obj_frame{frame_i}.json"), "w") as f:
                         json.dump(poses_by_obj, f, indent=2)
 
-                    # Save composite visualization
-                    Image.fromarray(vis_stack.astype(np.uint8)).save(os.path.join(out_dir, f"vis_multi_frame{frame_i}.png"))
+                    Image.fromarray(vis_stack.astype(np.uint8)).save(
+                        os.path.join(out_dir, f"vis_multi_frame{frame_i}.png")
+                    )
                     print(f"Saved results to {out_dir}")
-
+                    
     finally:
         if args.visualize:
             cv2.destroyAllWindows()
