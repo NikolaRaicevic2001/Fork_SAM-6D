@@ -642,7 +642,7 @@ def main():
 
     # Initialize RealSense Camera
     realsense = RealSenseCamera(
-        serial_number="036322250488",
+        serial_number="839112061696",
         depth_scale=1.0, 
         intrinsics_for="color", 
         out_dir=args.output_dir, 
@@ -669,6 +669,7 @@ def main():
     if args.visualize:
         window_name = "SAM-6D Live (q to quit)"
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(window_name, 800, 600)
 
     try:
         frame_i = 0
@@ -710,7 +711,7 @@ def main():
                     vis_pem_np = vis_pem_np[:h]
                 vis_ism_pem = np.vstack([vis_ism_np, vis_pem_np]) 
                 vis_ism_pem_bgr = cv2.cvtColor(vis_ism_pem, cv2.COLOR_RGB2BGR)
-                vis_ism_pem_bgr = cv2.resize(vis_ism_pem_bgr, None, fx=SCALE, fy=SCALE, interpolation=cv2.INTER_AREA)
+                vis_ism_pem_bgr = cv2.resize(vis_ism_pem_bgr, None, fx=SCALE, fy=SCALE, interpolation=cv2.INTER_LINEAR)
                 cv2.imshow(window_name, vis_ism_pem_bgr)
                 key = cv2.waitKey(1) & 0xFF
 

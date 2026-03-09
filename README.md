@@ -1,15 +1,5 @@
 # <p align="center"> <font color=#008000>SAM-6D</font>: Segment Anything Model Meets Zero-Shot 6D Object Pose Estimation </p>
 
-## News
-- [2024/03/07] We publish an updated version of our paper on [ArXiv](https://arxiv.org/abs/2311.15707).
-- [2024/02/29] Our paper is accepted by CVPR2024!
-
-
-## Update Log
-- [2024/03/05] We update the demo to support [FastSAM](https://github.com/CASIA-IVA-Lab/FastSAM), you can do this by specifying `SEGMENTOR_MODEL=fastsam` in demo.sh.
-- [2024/03/03] We upload a [docker image](https://hub.docker.com/r/lihualiu/sam-6d/tags) for running custom data.
-- [2024/03/01] We update the released [model](https://drive.google.com/file/d/1joW9IvwsaRJYxoUmGo68dBVg-HcFNyI7/view?usp=sharing) of PEM. For the new model, a larger batchsize of 32 is set, while that of the old is 12. 
-
 ## Overview
 In this work, we employ Segment Anything Model as an advanced starting point for **zero-shot 6D object pose estimation** from RGB-D images, and propose a novel framework, named **SAM-6D**, which utilizes the following two dedicated sub-networks to realize the focused task:
 - [x] [Instance Segmentation Model](https://github.com/JiehongLin/SAM-6D/tree/main/SAM-6D/Instance_Segmentation_Model)
@@ -105,15 +95,9 @@ python camera.py --out_dir $OUTPUT_DIR
 
 ### 5. Run Object Tracking
 ```
-OBJECT_DIR="myObject/dominoSugar"
-CAD_FILE="dominoSugar.ply"
-ROOT="${HOME}/ycb_ws/Fork_SAM-6D/SAM-6D"
-#OBJECT_DIR="myObject/2_block"
-#CAD_FILE="2_block.ply"
-#ROOT="/home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D"
-OBJECT_DIR="myObject/I_block_large"
-CAD_FILE="I_block_large.ply"
-ROOT="/home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D"
+OBJECT_DIR="myObject/sugarBox"
+CAD_FILE="sugarBox.ply"
+ROOT="${HOME}/Workspace/External/SAM-6D/SAM-6D"
 
 python sam6d_tracker.py \
   --segmentor_model fastsam \
