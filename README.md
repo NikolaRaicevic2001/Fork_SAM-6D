@@ -113,8 +113,10 @@ ROOT="/home/nikolaraicevic/Workspace/External/SAM-6D/SAM-6D"
 python sam6d_tracker_multiple.py \
   --segmentor_model fastsam \
   --output_dir "$ROOT/Data/myObject/" \
-  --obj_name sugarBox --cad_path "$ROOT/Data/myObject/sugarBox/sugarBox.ply" \
-  --obj_name tomatoSoup  --cad_path "$ROOT/Data/myObject/tomatoSoup/tomatoSoup.ply" \
+  --obj_name I_block --cad_path "$ROOT/Data/myObject/I_block/I_block.ply" \
+  --obj_name R_block  --cad_path "$ROOT/Data/myObject/R_block/R_block.ply" \
+  --obj_name O_block  --cad_path "$ROOT/Data/myObject/O_block/O_block.ply" \
+  --obj_name S_block  --cad_path "$ROOT/Data/myObject/S_block/S_block.ply" \
   --visualize
 ```
 
