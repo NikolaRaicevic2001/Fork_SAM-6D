@@ -18,7 +18,15 @@ cd SAM-6D
 sh prepare.sh
 ```
 We also provide a [docker image](https://hub.docker.com/r/lihualiu/sam-6d/tags) for convenience.
+OBJECT_DIR="myObject/tomatoSoup"
+CAD_FILE="tomatoSoup.ply"
+ROOT="${HOME}/Workspace/External/SAM-6D/SAM-6D"
 
+python sam6d_tracker.py \
+  --segmentor_model fastsam \
+  --output_dir "$ROOT/Data/$OBJECT_DIR/outputs" \
+  --cad_path "$ROOT/Data/$OBJECT_DIR/$CAD_FILE" \
+  --visualize
 ### 2. Evaluation on the custom data
 ```
 # set the paths
@@ -134,7 +142,7 @@ conda deactivate
 source /opt/ros/humble/setup.bash
 python sam6d_ros2_camera_braodcaster.py
 ```
-- Note: you have to set the absolute path to the camera_extrinsics_{device_id}.npz file
+- Note: you have to set the absolute path to the camera_extrinsics_{device_id}.npz file and run it in terminal with ROS2 Humble support
 
 Get the live transformaton
 ```
@@ -142,3 +150,4 @@ conda deactivate
 source /opt/ros/humble/setup.bash
 ros2 run tf2_ros tf2_echo robot_base sam6d_object
 ```
+- Note: You have to run it in different terminal with ROS2 Humble support
