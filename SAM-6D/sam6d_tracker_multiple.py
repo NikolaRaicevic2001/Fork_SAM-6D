@@ -884,7 +884,7 @@ def main():
     if args.visualize:
         window_name = "SAM-6D Multi-object (q=quit, s=save)"
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(window_name, 1000, 800)   
+        cv2.resizeWindow(window_name, 1200, 1000)   
 
     try:
         frame_i = 0

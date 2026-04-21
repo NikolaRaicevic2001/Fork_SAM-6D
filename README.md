@@ -87,7 +87,7 @@ blenderproc run render_custom_templates.py --output_dir $OUTPUT_DIR --cad_path $
 
 ### 4. Capture Image
 ```
-OBJECT_DIR="myObject/T_block"                 # Directory containing your data
+OBJECT_DIR="myObject/tomatoSoup"                 # Directory containing your data
 OUTPUT_DIR=$(pwd)/Data/${OBJECT_DIR}/outputs
 
 python camera.py --out_dir $OUTPUT_DIR
@@ -95,8 +95,8 @@ python camera.py --out_dir $OUTPUT_DIR
 
 ### 5. Run Object Tracking
 ```
-OBJECT_DIR="myObject/sugarBox"
-CAD_FILE="sugarBox.ply"
+OBJECT_DIR="myObject/tomatoSoup"
+CAD_FILE="tomatoSoup.ply"
 ROOT="${HOME}/Workspace/External/SAM-6D/SAM-6D"
 
 python sam6d_tracker.py \

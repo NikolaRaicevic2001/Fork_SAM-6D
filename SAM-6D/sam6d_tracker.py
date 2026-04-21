@@ -642,7 +642,7 @@ def main():
 
     # Initialize RealSense Camera
     realsense = RealSenseCamera(
-        serial_number="839112061696",
+        serial_number="036322250488",
         depth_scale=1.0, 
         intrinsics_for="color", 
         out_dir=args.output_dir, 
@@ -669,7 +669,7 @@ def main():
     if args.visualize:
         window_name = "SAM-6D Live (q to quit)"
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(window_name, 800, 600)
+        cv2.resizeWindow(window_name, 1200, 900)
 
     try:
         frame_i = 0
