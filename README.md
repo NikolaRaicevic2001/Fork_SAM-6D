@@ -140,7 +140,7 @@ python sam6d_ros2_publisher.py
 ```
 conda deactivate
 source /opt/ros/humble/setup.bash
-python sam6d_ros2_camera_braodcaster.py
+python sam6d_ros2_camera_broadcaster.py --ros-args -p parent_frame:="xarm_device"
 ```
 - Note: you have to set the absolute path to the camera_extrinsics_{device_id}.npz file and run it in terminal with ROS2 Humble support
 

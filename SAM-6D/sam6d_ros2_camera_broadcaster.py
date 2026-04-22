@@ -48,8 +48,6 @@ class ExtrinsicsBroadcaster(Node):
     def __init__(self):
         super().__init__("camera_extrinsics_broadcaster")
         # Parameters
-        # self.declare_parameter("npz_path","/home/nikolaraicevic/Workspace/Internal/Camera_Calibration/src/Xarm6_Camera_Calibration/camera_extrinsics_036322250488.npz")
-        # self.declare_parameter("npz_path","/home/nikolaraicevic/Workspace/External/KUDA/xarm-calibrate/real_world/calibration_result/camera_036322250488_extrinsics.npz")
         self.declare_parameter("npz_path","/home/nikolaraicevic/Workspace/Internal/Camera_Calibration/src/xarm-calibrate/real_world/calibration_result/camera_036322250488_extrinsics.npz")
         self.declare_parameter("parent_frame", "robot_base")
         self.declare_parameter("child_frame", "camera_color_optical_frame")
