@@ -60,8 +60,8 @@ OUTPUT="$(pwd)/Data/${OBJECT_DIR}/${PLY_FILE}"
 # ============================================
 # Configuration - EDIT THESE PATHS
 # ============================================
-OBJECT_DIR="myObject/I_block_large"     # Directory containing your data
-CAD_FILE="I_block_large.ply"            # Your CAD model filename
+OBJECT_DIR="myObject/tomatoSoup"        # Directory containing your data
+CAD_FILE="tomatoSoup.ply"               # Your CAD model filename
 RGB_FILE="rgb.jpg"                      # Your RGB image filename
 DEPTH_FILE="depth.png"                  # Your depth image filename
 CAMERA_FILE="camera.json"               # Your camera intrinsics filename
@@ -105,7 +105,7 @@ python camera.py --out_dir $OUTPUT_DIR
 ```
 OBJECT_DIR="myObject/tomatoSoup"
 CAD_FILE="tomatoSoup.ply"
-ROOT="${HOME}/Workspace/External/SAM-6D/SAM-6D"
+ROOT="/home/erl-jackal/ycb_ws/Fork_SAM-6D/SAM-6D"
 
 python sam6d_tracker.py \
   --segmentor_model fastsam \
