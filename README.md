@@ -130,21 +130,31 @@ python sam6d_tracker_multiple.py \
 
 ### 6. Publish the Object Pose on ROS2 topic
 ```
-conda deactivate
+# Enter the docker container
+docker run -it --network host -v ./:/workspace ros:humble
+
+# In the docker container
 source /opt/ros/humble/setup.bash
-python sam6d_ros2_publisher.py 
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+cd workspace
+python3 sam6d_ros2_publisher.py 
 ```
 - Note: You have to run it in different terminal with ROS2 Humble support
 
 ### 7. Run the camera broadcaster
 ```
-conda deactivate
+# Enter the docker container
+docker run -it --network host -v ./:/workspace ros:humble
+
+# In the docker container
 source /opt/ros/humble/setup.bash
-python sam6d_ros2_camera_broadcaster.py --ros-args -p parent_frame:="xarm_device"
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+cd workspace
+python3 sam6d_ros2_camera_broadcaster.py --ros-args -p parent_frame:="xarm_device" -p npz_path:="{npz_file_path}"
 ```
 - Note: you have to set the absolute path to the camera_extrinsics_{device_id}.npz file and run it in terminal with ROS2 Humble support
 
-Get the live transformaton
+### 8. Get the live transformaton
 ```
 conda deactivate
 source /opt/ros/humble/setup.bash
